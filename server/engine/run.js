@@ -123,7 +123,7 @@ function rest(key) {
       try {
         const pj = await projectorFor();
         if (pj && row.snapshot && row.snapshot.league) {
-          const r = await pj.league(row.snapshot.league, row.snapshot.rosters || []);
+          const r = await pj.league(row.snapshot.league, row.snapshot.rosters || [], Object.keys(row.snapshot.proj || {}));
           row.snapshot.dhq_proj = { week: r.week, built_at: new Date().toISOString(), players: r.proj, inputs: r.data };
           console.log('  dhq projections:', r.projected, 'players (', r.no_line, 'without a Sleeper line ) in', (r.ms / 1000).toFixed(1) + 's, week', r.week);
         }

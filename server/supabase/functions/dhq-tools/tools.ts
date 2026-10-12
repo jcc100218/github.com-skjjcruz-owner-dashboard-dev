@@ -231,18 +231,23 @@ export function seasonBits(ctx: Ctx, L: LeagueRow, pid: string) {
     out.scored_this_week = round1(thisWeekPts);
     out.this_week = 'scored ' + round1(thisWeekPts) + ' this week';
   } else {
-    const pr = (L.snapshot.proj || {})[pid];
-    if (pr != null) out.proj_this_week = round1(pr);
-    else if (wk) out.proj_this_week = null;
-    // Owner ruling 2026-10-12: every this-week answer quotes DHQ's projection,
-    // the number on the app's Lineup screen (its average week), so the
-    // connector, the in-app AI and the screen say the same thing.
+    // Owner rulings 2026-10-12: every this-week number is DHQ's projection
+    // (its average week, the number on the app's Lineup screen), and the AI
+    // never sees or quotes Sleeper's. The build projects everyone with a
+    // Sleeper line (truth law: no line means no role, so no projection).
+    // Sleeper's line is used only when the build stored no DHQ projections
+    // at all, and then it is not labeled as Sleeper's.
     const d = (L.snapshot as any).dhq_proj;
-    const dl = d && d.players && Number(d.week) === wk ? d.players[pid] : null;
-    if (dl) {
-      out.dhq_proj_this_week = round1(Number(dl.mean) || 0);
-      if (Number(dl.mean) > 0) { out.dhq_floor = round1(Number(dl.floor) || 0); out.dhq_ceiling = round1(Number(dl.ceiling) || 0); }
-    }
+    const dhqOn = !!(d && d.players && Object.keys(d.players).length && Number(d.week) === wk);
+    const dl = dhqOn ? d.players[pid] : null;
+    if (dl && !dl.no_line) {
+      out.proj_this_week = round1(Number(dl.mean) || 0);
+      if (Number(dl.mean) > 0) { out.proj_floor = round1(Number(dl.floor) || 0); out.proj_ceiling = round1(Number(dl.ceiling) || 0); }
+    } else if (!dhqOn) {
+      const pr = (L.snapshot.proj || {})[pid];
+      if (pr != null) out.proj_this_week = round1(pr);
+      else if (wk) out.proj_this_week = null;
+    } else if (wk) out.proj_this_week = null;
   }
   return out;
 }
@@ -251,7 +256,7 @@ export function compactRow(x: Record<string, any>): string {
     x.name + ' ' + x.pos + ' ' + x.nfl_team, x.age != null ? 'age ' + x.age : '',
     x.dhq_value != null ? 'DHQ ' + x.dhq_value + (x.league_rank ? ' (#' + x.league_rank + ', ' + x.pos + x.pos_rank + ')' : '') : '',
     x.nfl_opponent ? (x.nfl_opponent === 'BYE' ? 'BYE this wk' : 'vs ' + x.nfl_opponent) : '',
-    x.scored_this_week != null ? 'this wk: ' + (x.scored_this_week ? 'scored ' + x.scored_this_week : 'did not play') + ' (already played, locked)' : x.dhq_proj_this_week != null ? 'this wk DHQ proj ' + x.dhq_proj_this_week + (x.proj_this_week != null ? ' (Sleeper ' + x.proj_this_week + ')' : '') : x.proj_this_week != null ? 'this wk proj ' + x.proj_this_week : (x.proj_this_week === null ? 'this wk: no projection' : ''),
+    x.scored_this_week != null ? 'this wk: ' + (x.scored_this_week ? 'scored ' + x.scored_this_week : 'did not play') + ' (already played, locked)' : x.proj_this_week != null ? 'this wk DHQ proj ' + x.proj_this_week : (x.proj_this_week === null ? 'this wk: no projection' : ''),
     x.season_games != null ? 'season ' + x.season_avg + ' avg (' + x.season_games + ' gp)' : 'season: no games',
     x.peak_years_left != null ? x.peak_years_left + ' peak yrs, ' + (x.age_phase || '') : '',
     x.value_trend_pct ? 'trend ' + (x.value_trend_pct > 0 ? '+' : '') + x.value_trend_pct + '%' : '', x.injury ? 'INJ ' + x.injury : '', x.slot || '',
@@ -308,7 +313,7 @@ export const TOOL_DEFS = [
   def('get_recent_trades', 'Completed trades in the league, newest first, with what each side got and who won on DHQ value.', { league_id: S('League id'), days: N('Look-back window in days (default 30)'), roster_id: N('Only trades involving this roster (optional)') }),
   def('get_waiver_options', 'Best available free agents by DHQ value, Sleeper\'s trending adds, the member\'s FAAB left, and what this league usually pays by position.', { league_id: S('League id'), position: S('QB, RB, WR, TE, K, DL, LB, DB (optional)'), limit: N('How many (default 8, max 15)') }),
   def('get_pick_values', 'What draft picks are worth in this league (DHQ pick values by round and slot), plus who owns which picks.', { league_id: S('League id'), roster_id: N('Only this roster\'s picks (optional)') }),
-  def('get_weekly_projections', 'START/SIT: this week\'s DHQ projection (dhq_proj_this_week, the app\'s Lineup screen number; Sleeper\'s line alongside) for each player in this league\'s scoring, with injury status and this season\'s game log. Use this (not dynasty value or long-run rates) to decide who to start, and always include every player being compared so you never have to send the member elsewhere for a number. Then search the web for the last week of news on each player and his team (play-caller, coaching or QB changes, teammate injuries, role changes, weather) and lead with the biggest item.', { league_id: S('League id'), players: A('Player names or ids (up to 20)') }, ['players']),
+  def('get_weekly_projections', 'START/SIT: this week\'s DHQ projection (proj_this_week with proj_floor and proj_ceiling, the app\'s Lineup screen number) for each player in this league\'s scoring, with injury status and this season\'s game log. Use this (not dynasty value or long-run rates) to decide who to start, and always include every player being compared so you never have to send the member elsewhere for a number. Then search the web for the last week of news on each player and his team (play-caller, coaching or QB changes, teammate injuries, role changes, weather) and lead with the biggest item.', { league_id: S('League id'), players: A('Player names or ids (up to 20)') }, ['players']),
   def('get_my_matchup', 'This week\'s head-to-head matchup for the member: opponent, both set lineups with each starter\'s projection and injury, projected totals, and the bench players projected higher than a starter. For the lineup decision itself call get_start_sit.', { league_id: S('League id') }),
   ...LEAGUE_DEFS,
   ...VERDICT_DEFS,
@@ -372,7 +377,7 @@ async function getTeam(ctx: Ctx, L: LeagueRow, args: any) {
     league_id: L.league_id, roster_id: r.roster_id, team: teamName(L, r.roster_id), owner: ownerName(L, r.roster_id), is_mine: !!(me && me.roster_id === r.roster_id),
     record: (s.wins || 0) + '-' + (s.losses || 0) + (s.ties ? '-' + s.ties : ''), points_for: round1((s.fpts || 0) + (s.fpts_decimal || 0) / 100),
     assessment: assessBrief(a), total_dhq_value: rows.reduce((t: number, p: any) => t + p.dhq_value, 0),
-    players_key: 'name pos NFL-team | age | DHQ dynasty value (league rank, position rank) | this week\'s NFL opponent (or BYE) | this week\'s Sleeper projection in this league\'s scoring | this season\'s average and games played | peak years left, age phase | value trend | injury | slot',
+    players_key: 'name pos NFL-team | age | DHQ dynasty value (league rank, position rank) | this week\'s NFL opponent (or BYE) | this week\'s DHQ projection in this league\'s scoring | this season\'s average and games played | peak years left, age phase | value trend | injury | slot',
     players: rows.map(compactRow), picks, live_as_of: liveAt, numbers_as_of: L.built_at,
   };
 }
@@ -444,7 +449,7 @@ function pickValues(ctx: Ctx, L: LeagueRow, args: any) {
 }
 
 export const NEWS_STEP = 'Before you answer, read latest_news (the player\'s own most recent report, plus latest_news.stories: every story of the last two weeks linked to him, "about him" or "via" the team news that reaches him, like a new play-caller or his quarterback\'s injury) and team_news (his team\'s headlines from the last 7 days) for EACH player and lead with the biggest item on each side: a new play-caller or head coach, a quarterback change, a teammate trade or injury that shifts targets or carries, a role change, practice status. A coaching or play-calling change outranks a cold stretch of box scores. If you can also search the web, add anything newer. Never tell the member to go check something themselves.';
-export type ProjLine = { id: string; name: string; pos: string; nfl_team: string; nfl_opponent?: string; game_date?: string | null; game_status?: string; injury?: string; proj_this_week?: number | null; dhq_proj_this_week?: number; dhq_floor?: number; dhq_ceiling?: number; scored_this_week?: number; this_week?: string; season_games?: number; season_avg?: number | null; game_log?: string };
+export type ProjLine = { id: string; name: string; pos: string; nfl_team: string; nfl_opponent?: string; game_date?: string | null; game_status?: string; injury?: string; proj_this_week?: number | null; proj_floor?: number; proj_ceiling?: number; scored_this_week?: number; this_week?: string; season_games?: number; season_avg?: number | null; game_log?: string };
 export function projLine(ctx: Ctx, L: LeagueRow, pid: string): ProjLine {
   const p = fresh(ctx, pid);
   const bits = seasonBits(ctx, L, pid) as Partial<ProjLine>;
@@ -455,7 +460,7 @@ async function weeklyProjections(ctx: Ctx, L: LeagueRow, args: any) {
   (args.players || []).slice(0, 20).forEach((q: unknown) => { const pid = resolveOne(ctx, L, q); if (pid) ids.push(pid); else unknown.push(String(q)); });
   const [blurbs, liveAt] = await Promise.all([latestBlurbs(ctx, ids), goLive(ctx, L, ids)]);
   const withNews = (pid: string) => ({ ...projLine(ctx, L, pid), latest_news: blurbs[pid], team_news: teamNews(ctx, fresh(ctx, pid).t) });
-  return { league_id: L.league_id, week: L.snapshot.proj_week, scoring: 'this league\'s scoring', before_you_answer: NEWS_STEP, news_as_of: ctx.news ? ctx.news.fetched_at : undefined, live_as_of: liveAt, note: 'dhq_proj_this_week is DHQ\'s projection (the number on the app\'s Lineup screen, with dhq_floor and dhq_ceiling): quote it for this week. proj_this_week is Sleeper\'s line, for reference only; game_log is points scored each week this season (DNP = did not play). A null projection means Sleeper is not projecting him this week.', players: ids.map(withNews), not_found: unknown.length ? unknown : undefined, numbers_as_of: L.built_at };
+  return { league_id: L.league_id, week: L.snapshot.proj_week, scoring: 'this league\'s scoring', before_you_answer: NEWS_STEP, news_as_of: ctx.news ? ctx.news.fetched_at : undefined, live_as_of: liveAt, note: 'proj_this_week is DHQ\'s projection in this league\'s scoring (the number on the app\'s Lineup screen; proj_floor and proj_ceiling are his range); null means he has no role this week. game_log is points scored each week this season (DNP = did not play). A null projection means Sleeper is not projecting him this week.', players: ids.map(withNews), not_found: unknown.length ? unknown : undefined, numbers_as_of: L.built_at };
 }
 async function myMatchup(ctx: Ctx, L: LeagueRow) {
   const me = myRoster(L, ctx.memberId);
@@ -471,8 +476,8 @@ async function myMatchup(ctx: Ctx, L: LeagueRow) {
   const proj = L.snapshot.proj || {};
   const startersOf = (row: { starters?: string[] } | null | undefined, r: Roster | null) => ((row && row.starters) || (r && r.starters) || []).filter(x => x && x !== '0');
   const lineup = (row: { starters?: string[] } | null | undefined, r: Roster | null) => startersOf(row, r).map(pid => projLine(ctx, L, pid));
-  // This week: DHQ's projection (the app's Lineup number), Sleeper's line where DHQ has none.
-  const wkP = (x: ProjLine) => Number(x.dhq_proj_this_week != null ? x.dhq_proj_this_week : x.proj_this_week) || 0;
+  // This week: DHQ's projection (the app's Lineup number).
+  const wkP = (x: ProjLine) => Number(x.proj_this_week) || 0;
   const pts = (x: ProjLine) => x.scored_this_week != null ? Number(x.scored_this_week) : wkP(x);
   const total = (list: ProjLine[]) => round1(list.reduce((t, x) => t + pts(x), 0));
   const myLine = lineup(mine, me), oppLine = lineup(opp, oppR);
@@ -491,7 +496,7 @@ async function myMatchup(ctx: Ctx, L: LeagueRow) {
     bench_projected_above_a_starter_at_same_position: benchBetter,
     team_news_for_my_players: Object.fromEntries([...new Set(myLine.concat(benchBetter).map(x => x.nfl_team))].map(t => [t, teamNews(ctx, t, 3)]).filter(([, v]) => v)),
     before_you_answer: NEWS_STEP,
-    note: 'Projections are DHQ\'s (dhq_proj_this_week, the app\'s Lineup screen number; Sleeper\'s line where DHQ has none), in this league\'s scoring. Lineups are as set in Sleeper right now.',
+    note: 'Projections are DHQ\'s (the app\'s Lineup screen number), in this league\'s scoring. Lineups are as set in Sleeper right now.',
     numbers_as_of: L.built_at,
   };
 }

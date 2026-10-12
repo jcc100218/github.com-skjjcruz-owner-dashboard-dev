@@ -19,9 +19,9 @@
 //                 Questionable starters in late games with a pivot, the
 //                 head-to-head between named players, and a confidence.
 //
-// The server's number is Sleeper's weekly projection in this league's
-// scoring (the Lab uses DHQ's average week); floor/ceiling and a win chance
-// are not available here, so a coin flip keeps the higher projection.
+// The number is DHQ's weekly projection (its average week) in this league's
+// scoring, the Lab's number; when the build stored none, floor/ceiling and a
+// win chance are missing, so a coin flip keeps the higher projection.
 // deno-lint-ignore-file no-explicit-any
 
 // ── Exact assignment ─────────────────────────────────────────────────────
@@ -279,7 +279,7 @@ export function startSitCall(facts: any) {
   ];
   if (F.win_pct != null) evidence.push('Win chance with the best lineup: ' + Math.round(F.win_pct) + '%.');
   evidence.push(F.locks_loaded ? 'Game locks checked: ' + locked.length + ' of your players\' games have started.' : 'Game locks NOT loaded: could not confirm whose game has started.');
-  if (F.sleeper_loaded === false) evidence.push('Sleeper\'s lines for this week are not loaded, so there is no projection to rank on.');
+  if (F.sleeper_loaded === false) evidence.push('This week\'s projections are not loaded yet, so there is no projection to rank on.');
   rules.unshift('Ranked by ' + (F.source_note || statWord + ' in this league\'s scoring') + ', never by dynasty value.');
   if ((F.not_found || []).length) evidence.push('No player found for: ' + F.not_found.join(', ') + '.');
 

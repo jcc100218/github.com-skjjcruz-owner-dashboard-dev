@@ -27,7 +27,7 @@ const name = (ctx: Ctx, pid: string) => (ctx.players[pid] && ctx.players[pid].n)
 const posOf = (ctx: Ctx, L: LeagueRow, pid: string) => normPos(((L.intel.playerMeta || {})[pid] || {}).pos || (ctx.players[pid] || {}).pos || '');
 
 // ── 1. Start / sit and the whole lineup ──────────────────────────────────
-// One number per player (Sleeper's projection in this league's scoring).
+// One number per player (DHQ's projection in this league's scoring).
 // Out/IR/Doubtful and bye players are unavailable, players whose game has
 // started are locked where they are at their actual points, then the open
 // slots are solved: the app's greedy solver, checked by an exact assignment
@@ -57,17 +57,18 @@ function lineFor(ctx: Ctx, L: LeagueRow, pid: string): Line {
   else if (p.nfl_opponent === 'BYE') { available = false; why = 'bye week'; zero = 'bye'; }
   else if (OUT_SET.has(inj) || /^OUT/.test(inj) || /^IR\b/.test(inj)) { available = false; why = 'ruled ' + (f.inj || 'out'); zero = TAG_REASON[inj] || (/^IR\b/.test(inj) ? 'IR' : 'out'); }
   else if (inj === 'DOUBTFUL' || inj === 'D') { available = false; why = 'Doubtful: DHQ treats doubtful as out (he misses far more often than he plays)'; zero = 'doubtful'; }
-  else if (!locked && p.proj_this_week == null) { available = false; why = 'Sleeper is not projecting him this week'; zero = 'no_sleeper_line'; }
-  else if (!locked && Number(p.proj_this_week) <= 0) zero = 'no_role';
+  // Truth law: no Sleeper line this week means no role, so no projection (never named to the member as Sleeper's).
+  else if (!locked && (L.snapshot.proj || {})[pid] == null) { available = false; why = 'not projected this week: no role'; zero = 'not_projected'; }
+  else if (!locked && !(Number(p.proj_this_week) > 0)) zero = 'no_role';
   // DHQ's number when the build stored one for him; Sleeper's line otherwise.
   const d = dhqLine(L, pid);
   if (d && !locked) {
     const dq = { source: 'dhq' as const, dhq_proj: d.mean, floor: d.floor, ceiling: d.ceiling };
     if (available && !(d.mean > 0)) {
       available = false;
-      why = d.no_line ? 'Sleeper is not projecting him this week' : 'DHQ projects him for 0 this week';
-      zero = d.no_line ? 'no_sleeper_line' : 'no_role';
-    } else if (available && zero === 'no_sleeper_line') zero = undefined;
+      why = d.no_line ? 'not projected this week: no role' : 'DHQ projects him for 0 this week';
+      zero = d.no_line ? 'not_projected' : 'no_role';
+    } else if (available && zero === 'not_projected') zero = undefined;
     return { ...p, pts: available ? d.mean : null, available, locked, why_unavailable: why, zero_reason: zero, ...dq };
   }
   const pts = locked ? Number(p.scored_this_week) : (available ? Number(p.proj_this_week) : null);
@@ -175,7 +176,7 @@ export async function startSit(ctx: Ctx, L: LeagueRow, args: any) {
     locks_loaded: !!(ctx.live && ctx.live.scores), sleeper_loaded: Object.keys(L.snapshot.proj || {}).length > 0,
     win_pct: winPct, players: facts, asked: named, not_found: unknown, game_kicks: gameKicks,
     stat_word: useDhq ? 'DHQ projection' : 'projection',
-    source_note: useDhq ? 'DHQ\'s weekly projection (average week) in this league\'s scoring; Sleeper\'s line for anyone DHQ has no number for' : 'Sleeper\'s weekly projection in this league\'s scoring (DHQ\'s projections were not in this build)',
+    source_note: useDhq ? 'DHQ\'s weekly projection (average week) in this league\'s scoring' : 'DHQ\'s full projections are still building; numbers are the base weekly projection in this league\'s scoring',
   });
 
   // Head to head, when the member named players: the call plus each player's line and news.
@@ -194,7 +195,7 @@ export async function startSit(ctx: Ctx, L: LeagueRow, args: any) {
     head_to_head = { ...(h || {}), call: text, coin_flip: h ? !!h.close_call : undefined, players: rows.map(x => ({ ...x, in_optimal_lineup: optimalSet.has(x.id), on_my_roster: pool.includes(x.id) || reserve.includes(x.id) || taxi.includes(x.id), latest_news: blurbs[x.id], team_news: teamNews(ctx, x.nfl_team) })) };
   }
   const slotOf = (pid: string) => { const i = current.indexOf(pid); return i >= 0 ? slotNames[i] : 'bench'; };
-  const lineup = (pids: Array<{ pid: string; slot: string }>) => pids.map(x => ({ slot: x.slot, player: x.pid ? name(ctx, x.pid) : '(empty)', pos: x.pid ? posOf(ctx, L, x.pid) : undefined, pts: x.pid ? round1(val(x.pid)) : 0, source: x.pid && lines[x.pid] && !lines[x.pid].locked ? lines[x.pid].source : undefined, locked: x.pid && lines[x.pid] ? lines[x.pid].locked : undefined, status: x.pid && lines[x.pid] ? (lines[x.pid].locked ? lines[x.pid].this_week : lines[x.pid].available ? 'projected' : 'NOT STARTABLE: ' + lines[x.pid].why_unavailable) : undefined, injury: x.pid && lines[x.pid] ? lines[x.pid].injury : undefined }));
+  const lineup = (pids: Array<{ pid: string; slot: string }>) => pids.map(x => ({ slot: x.slot, player: x.pid ? name(ctx, x.pid) : '(empty)', pos: x.pid ? posOf(ctx, L, x.pid) : undefined, pts: x.pid ? round1(val(x.pid)) : 0, locked: x.pid && lines[x.pid] ? lines[x.pid].locked : undefined, status: x.pid && lines[x.pid] ? (lines[x.pid].locked ? lines[x.pid].this_week : lines[x.pid].available ? 'projected' : 'NOT STARTABLE: ' + lines[x.pid].why_unavailable) : undefined, injury: x.pid && lines[x.pid] ? lines[x.pid].injury : undefined }));
   const left = round1(optimalTotal - currentTotal);
   return {
     league_id: L.league_id, week: L.snapshot.proj_week, team: teamName(L, r.roster_id), is_mine: !!(me && me.roster_id === r.roster_id),
@@ -206,9 +207,9 @@ export async function startSit(ctx: Ctx, L: LeagueRow, args: any) {
     swaps: call.changes.map((c: any) => ({ slot: c.slot, start: c.start, sit: c.sit, gain: c.gain_pts, close_call: c.close_call, why: c.why })),
     current_lineup: lineup(current.map((pid, i) => ({ pid, slot: slotNames[i] }))),
     optimal_lineup: lineup(slotNames.map((s, i) => ({ pid: placed[i] || '', slot: s }))),
-    bench: pool.filter(pid => !currentSet.has(pid)).map(pid => ({ player: name(ctx, pid), pos: posOf(ctx, L, pid), pts: lines[pid].pts, source: lines[pid].locked ? undefined : lines[pid].source, status: lines[pid].locked ? lines[pid].this_week : lines[pid].available ? 'projected' : 'not startable: ' + lines[pid].why_unavailable, zero_reason: lines[pid].zero_reason, injury: lines[pid].injury, slot_now: slotOf(pid) })).sort((a, b) => Number(b.pts || 0) - Number(a.pts || 0)),
+    bench: pool.filter(pid => !currentSet.has(pid)).map(pid => ({ player: name(ctx, pid), pos: posOf(ctx, L, pid), pts: lines[pid].pts, status: lines[pid].locked ? lines[pid].this_week : lines[pid].available ? 'projected' : 'not startable: ' + lines[pid].why_unavailable, zero_reason: lines[pid].zero_reason, injury: lines[pid].injury, slot_now: slotOf(pid) })).sort((a, b) => Number(b.pts || 0) - Number(a.pts || 0)),
     evidence: call.evidence, rules_applied: call.rules_applied, locks_loaded: call.locks_loaded, warning: call.warning,
-    projection: useDhq ? { source: 'DHQ weekly projection (average week), this league\'s scoring', built_at: (L.snapshot as any).dhq_proj.built_at, win_chance_pct: winPct } : { source: 'Sleeper weekly projection, this league\'s scoring (DHQ projections not in this build)' },
+    projection: useDhq ? { source: 'DHQ weekly projection (average week), this league\'s scoring', built_at: (L.snapshot as any).dhq_proj.built_at, win_chance_pct: winPct } : { source: 'DHQ base weekly projection, this league\'s scoring (full DHQ projections still building)' },
     solver: solved.exact ? 'exact assignment (it beat the greedy fill: a player eligible at two positions)' : 'greedy fill (the exact assignment found nothing better)',
     not_found: unknown.length ? unknown : undefined,
     before_you_answer: NEWS_STEP, method: skillText('start_sit'), live_as_of: liveAt, numbers_as_of: L.built_at,

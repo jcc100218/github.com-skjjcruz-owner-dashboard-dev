@@ -24,7 +24,7 @@
 // and any other *.supabase.co request fails closed.
 //
 // Output per league: { pid: { mean, median, floor, ceiling } } for every
-// rostered player DHQ projects (mean = the average week every lineup call
+// rostered player (and every player with a Sleeper line this week) DHQ projects (mean = the average week every lineup call
 // uses; a player with no Sleeper line this week reads 0, the truth law).
 'use strict';
 const fs = require('fs');
@@ -161,13 +161,17 @@ async function createProjector(shared) {
   await D._loadDeps();
   return {
     data, sleeperWeek: loaded,
-    async league(snapshotLeague, rosters) {
+    // extraPids: players off every roster to project too (run.js passes
+    // everyone with a Sleeper line this week), so a free agent the AI
+    // talks about has DHQ's number like everyone else (owner ruling
+    // 2026-10-12: the AI only ever quotes DHQ's projection).
+    async league(snapshotLeague, rosters, extraPids) {
       const t0 = Date.now();
       const lg = snapshotLeague;
       ctx.S.leagues = [{ league_id: lg.league_id, name: lg.name, scoring_settings: lg.scoring_settings, roster_positions: lg.roster_positions, settings: lg.settings }];
       ctx.S.rosters = rosters;
       ctx.S.currentLeagueId = lg.league_id;
-      const pids = [...new Set(rosters.flatMap(r => (r.players || []).map(String)))];
+      const pids = [...new Set(rosters.flatMap(r => (r.players || []).map(String)).concat((extraPids || []).map(String)))];
       D.request(pids);
       const st = D._st;
       const deadline = Date.now() + 10 * 60 * 1000;

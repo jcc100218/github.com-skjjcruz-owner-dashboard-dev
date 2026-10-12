@@ -30,6 +30,8 @@ const wk = Number(L.snapshot.proj_week) || 0;
 type Any = any;
 type Q = { q: string; tool: string; args: Record<string, unknown>; must: (r: Any) => string[] };
 const miss = (cond: unknown, what: string) => (cond ? [] : [what]);
+// Owner ruling 2026-10-12: the AI only ever sees DHQ's projection; no Sleeper projection or line anywhere in a reply.
+const noSleeperProj = (r: unknown) => miss(!/sleeper\W{1,3}(s\W+)?(weekly\W+)?(projection|proj|line)|dhq_proj_this_week|"source":"sleeper"/i.test(JSON.stringify(r).replace(/never quote or mention Sleeper.s projections/g, '')), 'no Sleeper projection or line in the reply');
 const num = (x: unknown) => typeof x === 'number' && Number.isFinite(x);
 
 // A player on a team that already played this week, and one still to play,
@@ -115,8 +117,8 @@ const BANK: Q[] = [
     ...miss(r.do_not_start.every((d: Any) => typeof d.reason === 'string' && d.reason.length > 0), 'every do-not-start says why'),
     ...miss(new Set(r.optimal_lineup.filter((x: Any) => x.player !== '(empty)').map((x: Any) => x.player)).size === r.optimal_lineup.filter((x: Any) => x.player !== '(empty)').length, 'nobody counted twice in the best lineup'),
     ...miss(!r.changes.some((c: Any) => r.optimal_lineup.some((x: Any) => x.locked && (x.player === c.start))), 'no change moves a locked player'),
-    ...miss(r.projection && (L.snapshot as Any).dhq_proj ? /DHQ weekly projection/.test(r.projection.source) : /Sleeper weekly projection/.test((r.projection || {}).source || ''), 'ranks on DHQ\'s weekly projection when the build stored it (Sleeper otherwise), and says which'),
-    ...miss(!(L.snapshot as Any).dhq_proj || r.optimal_lineup.filter((x: Any) => x.player !== '(empty)' && !x.locked).every((x: Any) => x.source === 'dhq' || x.source === 'sleeper'), 'every open starter says where his number comes from'),
+    ...miss(r.projection && /DHQ/.test(r.projection.source || ''), 'ranks on DHQ\'s weekly projection and says so'),
+    ...noSleeperProj(r),
   ] },
   { q: 'Which leagues am I in?', tool: 'list_leagues', args: {}, must: r => [
     ...miss(Array.isArray(r.leagues) && r.leagues.length >= 1, 'lists at least one league'),
@@ -124,6 +126,7 @@ const BANK: Q[] = [
     ...miss(r.leagues.every((l: Any) => l.format && l.my_team), 'each league shows format and my team'),
   ] },
   { q: 'Tell me about a player (dynasty and this season must be separate numbers)', tool: 'get_player', args: { player: 'Chig Okonkwo', league_id: lid }, must: r => [
+    ...noSleeperProj(r),
     ...miss(num(r.dhq_value), 'dhq_value present'),
     ...miss(r.ppg === undefined, 'no bare "ppg" field (it was mistaken for current form)'),
     ...miss('proj_this_week' in r || 'scored_this_week' in r, 'this week shown as projection or actual'),
@@ -142,6 +145,8 @@ const BANK: Q[] = [
     ];
   } },
   { q: 'My matchup this week', tool: 'get_my_matchup', args: { league_id: lid }, must: r => [
+    ...noSleeperProj(r),
+    ...noSleeperProj(r),
     ...miss(r.opponent && r.my_lineup && r.my_lineup.length > 0, 'opponent and my lineup present'),
     ...miss(num(r.my_projected_total) && num(r.their_projected_total), 'both totals present'),
     ...miss(!r.bench_projected_above_a_starter_at_same_position.some((b: Any) => b.scored_this_week != null), 'bench suggestions never include a locked player'),
