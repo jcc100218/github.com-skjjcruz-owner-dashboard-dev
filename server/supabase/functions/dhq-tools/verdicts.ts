@@ -215,7 +215,7 @@ export async function startSit(ctx: Ctx, L: LeagueRow, args: any) {
     recommendation: call.recommendation, decision: call.decision, confidence: call.confidence,
     verdict: call.recommendation,
     head_to_head, asked: call.asked,
-    player_context, answer_with_context: player_context ? 'After the call, give the story for each player from player_context: how he has played this season (season_avg, games played or missed in game_log), health and practice news (injury, latest_news), his role, and what drives DHQ\'s number (this_week.why): "DHQ projects him for X because …". A few sentences, never just a number.' : undefined,
+    player_context, answer_with_context: player_context ? 'Tell the story from player_context in this shape: (1) the call plus his status (active or not, how he practiced, what the coach said, from injury and latest_news); (2) what to expect: DHQ\'s projection with its floor and ceiling and what drives it (this_week.why), his season average and games missed (season_avg, game_log), his role and snap share, and the injury to watch; (3) the realistic alternative, if any: only a bench player whose game has not started, never someone locked, and never quote points already scored as a projection. Two short paragraphs, conversational, never just a number.' : undefined,
     changes: call.changes, close_calls: call.close_calls, do_not_start: call.do_not_start, questionable: call.questionable,
     points_left_on_bench: left, lineup_is_optimal: left <= 0.05, current_total: currentTotal, optimal_total: optimalTotal,
     swaps: call.changes.map((c: any) => ({ slot: c.slot, start: c.start, sit: c.sit, gain: c.gain_pts, close_call: c.close_call, why: c.why })),
