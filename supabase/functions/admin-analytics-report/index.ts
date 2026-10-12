@@ -80,6 +80,41 @@ async function loadTestSessions(admin: any, since: string): Promise<Set<string>>
   return new Set((data ?? []).map((r: { session_id: string }) => String(r.session_id)));
 }
 
+// ESPN / MFL guests (owner ask 2026-10-12: "we're not tracking the ESPN
+// visitor as a guest"). They have no Sleeper handle, so their sessions are
+// named in SQL (analytics_guest_sessions): session -> 'espn:<league>:<team>'
+// key and an 'ESPN · <team name>' label. Sessions with an account or a
+// Sleeper handle are never in that list, so nobody is counted twice. Additive:
+// if the function is missing (migration not applied yet) every view behaves
+// exactly as before.
+type PlatformGuest = { key: string; label: string };
+async function loadPlatformGuests(admin: any, since: string): Promise<Map<string, PlatformGuest>> {
+  const { data, error } = await fetchAllRows(() => admin.rpc('analytics_guest_sessions', { p_since: since }));
+  if (error) console.error('admin-analytics-report platform-guests rpc error:', error);
+  const out = new Map<string, PlatformGuest>();
+  for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+    if (r.session_id && r.guest_key) out.set(String(r.session_id), { key: String(r.guest_key), label: String(r.guest_label || r.guest_key) });
+  }
+  return out;
+}
+// Their events carry no name, so the name-filtered queries below never return
+// them: fetch those sessions' rows by session id (100 ids per request).
+async function fetchSessionRows(admin: any, select: string, since: string, sessionIds: string[]): Promise<any[]> {
+  const out: any[] = [];
+  for (let i = 0; i < sessionIds.length; i += 100) {
+    const chunk = sessionIds.slice(i, i + 100);
+    const { data, error } = await fetchAllRows(() => admin
+      .from('analytics_events')
+      .select(select)
+      .gte('event_ts', since)
+      .in('session_id', chunk)
+      .order('event_ts', { ascending: false }));
+    if (error) console.error('admin-analytics-report platform-guest rows error:', error);
+    out.push(...data);
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   const options = handleOptions(req);
   if (options) return options;
@@ -123,12 +158,22 @@ Deno.serve(async (req) => {
         console.error('admin-analytics-report users query error:', error);
         return json(req, { error: error.message }, 500);
       }
-      const guestHandle = (r: { username: string | null; user_id: string | null; metadata?: unknown }): string | null => {
+      // ESPN / MFL guests list here as "ESPN · <team> (guest)".
+      const platformGuests = await loadPlatformGuests(admin, since);
+      const guestRows = platformGuests.size
+        ? await fetchSessionRows(admin, 'username, user_id, session_id, event_ts, module, widget, metadata', since, [...platformGuests.keys()])
+        : [];
+      type UserRow = { username: string | null; user_id: string | null; session_id?: string | null; metadata?: unknown };
+      const guestHandle = (r: UserRow): string | null => {
         if (r.username || r.user_id) return null;
         const meta = (r.metadata ?? {}) as Record<string, unknown>;
         return typeof meta.sleeper === 'string' && meta.sleeper ? meta.sleeper : null;
       };
-      const rows = (allRows ?? []).filter((r) => isLive(r) && !isOwnerHandle(guestHandle(r)));
+      const platformGuestOf = (r: UserRow): PlatformGuest | null =>
+        (!r.username && !r.user_id && !guestHandle(r) && r.session_id && platformGuests.get(r.session_id)) || null;
+      const rows = [...(allRows ?? []), ...guestRows]
+        .filter((r) => isLive(r) && !isOwnerHandle(guestHandle(r)))
+        .filter((r) => r.username || r.user_id || guestHandle(r) || platformGuestOf(r));
       // username -> account bridge from events that carry both.
       const links = new Map<string, string>();
       for (const r of rows ?? []) {
@@ -137,10 +182,12 @@ Deno.serve(async (req) => {
           if (!links.has(uname)) links.set(uname, String(r.user_id));
         }
       }
-      const personKey = (r: { username: string | null; user_id: string | null; metadata?: unknown }) => {
+      const personKey = (r: UserRow) => {
         if (r.user_id) return String(r.user_id);
         const g = guestHandle(r);
         if (g) return 'guest:' + g.toLowerCase();
+        const pg = platformGuestOf(r);
+        if (pg) return 'guest:' + pg.key;
         const uname = String(r.username).toLowerCase();
         return links.get(uname) ?? uname;
       };
@@ -151,8 +198,9 @@ Deno.serve(async (req) => {
       for (const r of rows ?? []) {
         const key = personKey(r);
         const g = guestHandle(r);
+        const pg = g ? null : platformGuestOf(r);
         const u = byUser.get(key) ??
-          { display: g ? g + ' (guest)' : r.username, accountId: r.user_id ? String(r.user_id) : null, events: 0, sessions: new Set(), lastSeen: r.event_ts, modules: new Map() };
+          { display: g ? g + ' (guest)' : pg ? pg.label + ' (guest)' : r.username,accountId: r.user_id ? String(r.user_id) : null, events: 0, sessions: new Set(), lastSeen: r.event_ts, modules: new Map() };
         u.events++;
         if (r.session_id) u.sessions.add(r.session_id);
         if (r.user_id && !u.accountId) u.accountId = String(r.user_id);
@@ -210,7 +258,12 @@ Deno.serve(async (req) => {
         console.error('admin-analytics-report guests query error:', error);
         return json(req, { error: error.message }, 500);
       }
-      const rows = (allRows ?? []).filter((r) => isLive(r) && !isServerRow(r));
+      // ESPN / MFL guests: keyed 'espn:<league>:<team>', shown as 'ESPN · <team>'.
+      const platformGuests = await loadPlatformGuests(admin, since);
+      const guestRows = platformGuests.size
+        ? await fetchSessionRows(admin, 'username, user_id, session_id, event_ts, event_name, platform, module, widget, metadata', since, [...platformGuests.keys()])
+        : [];
+      const rows = [...(allRows ?? []), ...guestRows].filter((r) => isLive(r) && !isServerRow(r));
       // Handles any account owns: events that carry both a username and an
       // account id, plus app_users' linked Sleeper name.
       const linked = new Map<string, string>(); // handle -> account id
@@ -226,6 +279,16 @@ Deno.serve(async (req) => {
         for (const a of (accounts ?? []) as Array<Record<string, any>>) {
           const h = String(a.platform_usernames?.sleeper || '').toLowerCase();
           if (h) accountByHandle.set(h, { id: String(a.id), email: String(a.email || '') });
+          // An ESPN / MFL guest who signed up: the account's saved league +
+          // team matches the guest key exactly.
+          for (const [plat, teamField] of [['espn', 'teamId'], ['mfl', 'franchiseId']] as const) {
+            const entries = a.platform_usernames?.[plat];
+            for (const e of (Array.isArray(entries) ? entries : []) as Array<Record<string, unknown>>) {
+              if (!e?.leagueId) continue;
+              const k = `${plat}:${e.leagueId}` + (e[teamField] != null && e[teamField] !== '' ? `:${e[teamField]}` : '');
+              if (!accountByHandle.has(k)) accountByHandle.set(k, { id: String(a.id), email: String(a.email || '') });
+            }
+          }
         }
         if (linked.size) {
           const ids = [...new Set(linked.values())].slice(0, 500);
@@ -245,10 +308,11 @@ Deno.serve(async (req) => {
         if (r.user_id) continue;
         const meta = (r.metadata ?? {}) as Record<string, unknown>;
         const stamped = (typeof meta.sleeper === 'string' && meta.sleeper) || (typeof meta.sleeperUsername === 'string' && meta.sleeperUsername) || null;
-        const handle = stamped || (r.username ? String(r.username) : null);
+        const pg = !stamped && !r.username && r.session_id ? platformGuests.get(r.session_id) : undefined;
+        const handle = stamped || (r.username ? String(r.username) : null) || (pg ? pg.label : null);
         if (!handle || isOwnerHandle(handle)) continue;
-        const key = handle.toLowerCase();
-        const explicit = !!stamped || meta.guest === true;
+        const key = pg ? pg.key : handle.toLowerCase();
+        const explicit = !!stamped || !!pg || meta.guest === true;
         const g = byHandle.get(key) ??
           { display: handle, explicit: false, firstSeen: r.event_ts, lastSeen: r.event_ts, events: 0, sessions: new Set(), modules: new Map(), surfaces: new Map(), connects: 0, aiCalls: 0, lastEvent: '' };
         g.explicit = g.explicit || explicit;
@@ -365,10 +429,13 @@ Deno.serve(async (req) => {
       // Counts (surfaces, signups, sandbox split) all come from SQL above.
       // This loop only builds the guest list off the connect-module slice.
       const guests: Array<{ when: string; event: string; username: string | null; guest: boolean; surface: string }> = [];
+      // ESPN / MFL guests have no handle: name them by league / team.
+      const platformGuests = await loadPlatformGuests(admin, since);
       for (const r of rows ?? []) {
         if (!isLive(r) || guests.length >= 200) continue;
         const meta = (r.metadata ?? {}) as Record<string, unknown>;
-        const doorName = (typeof meta.sleeperUsername === 'string' && meta.sleeperUsername) || (typeof meta.sleeper === 'string' && meta.sleeper) || r.username || null;
+        const doorName = (typeof meta.sleeperUsername === 'string' && meta.sleeperUsername) || (typeof meta.sleeper === 'string' && meta.sleeper) || r.username
+          || (r.session_id ? platformGuests.get(r.session_id)?.label : null) || null;
         if (meta.guest === true && isOwnerHandle(doorName)) continue;
         guests.push({
           when: r.event_ts,
@@ -578,6 +645,11 @@ Deno.serve(async (req) => {
         const ref = meta.ref ?? meta.referrerHost;
         if (!s.ref && typeof ref === 'string' && ref) s.ref = ref;
         bySession.set(r.session_id, s);
+      }
+      // ESPN / MFL guests (2026-10-12): named by league / team, same column.
+      const platformGuests = await loadPlatformGuests(admin, since);
+      for (const [sid, s] of bySession) {
+        if (!s.sleeper) s.sleeper = platformGuests.get(sid)?.label ?? null;
       }
       const sessions = [...bySession.values()]
         .map((s) => ({

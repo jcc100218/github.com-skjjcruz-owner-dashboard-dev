@@ -1162,6 +1162,23 @@ test('Mission Control leaves test traffic out of every number (2026-09-27)',
     ok(wf.includes("'20260927000000': 'supabase/migrations/20260927000000_analytics_test_traffic_fence.sql'"), 'the fence migration is applied on deploy');
   });
 
+test('Mission Control counts ESPN / MFL guests like Sleeper guests (2026-10-12)',
+  () => {
+    const mig = fs.readFileSync(path.join(ROOT, 'supabase/migrations/20261012000000_analytics_platform_guests.sql'), 'utf8');
+    ok(mig.includes('create or replace function public.analytics_guest_sessions'), 'session -> guest key function');
+    ok(mig.includes("coalesce(ev.metadata->>'sleeper', '') <> ''") && mig.includes('ev.user_id is not null'), 'members and Sleeper guests are never ESPN/MFL guests (no double count)');
+    ok(mig.includes("ev.metadata->>'guest' = 'true'"), 'a signed-in member connecting ESPN is not a guest');
+    ok(mig.includes("'^(espn|mfl)_([0-9]+)_[0-9]{4}$'"), 'app sessions are recognised by their ESPN/MFL league (history)');
+    ok(mig.includes('revoke all on function public.analytics_guest_sessions') && mig.includes('to service_role'), 'service-role only');
+    ok(!/espn_s2|swid/i.test(mig.replace(/^--.*$/gm, '')), 'no ESPN cookies anywhere');
+    const fn = fs.readFileSync(path.join(ROOT, 'supabase/functions/admin-analytics-report/index.ts'), 'utf8');
+    ok(fn.includes("admin.rpc('analytics_guest_sessions'"), 'report reads the guest sessions');
+    ok((fn.match(/await loadPlatformGuests\(admin, since\)/g) || []).length === 4, 'users, guests, doors and sessions all name ESPN/MFL guests');
+    ok(fn.includes("pg.label + ' (guest)'"), 'Known users label: "ESPN · <team> (guest)"');
+    const wf = fs.readFileSync(path.join(ROOT, '.github/workflows/deploy-functions.yml'), 'utf8');
+    ok((wf.match(/'20261012000000': 'supabase\/migrations\/20261012000000_analytics_platform_guests\.sql'/g) || []).length === 2, 'migration is applied and verified on deploy');
+  });
+
 test('retired standalone pages are redirect stubs to the app (2026-09-26)',
   () => {
     // draft-warroom / free-agency / trade-calculator moved into app tabs; the
