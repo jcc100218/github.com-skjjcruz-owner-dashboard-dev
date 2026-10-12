@@ -151,7 +151,7 @@ export async function startSit(ctx: Ctx, L: LeagueRow, args: any) {
   for (const pid of new Set(Object.keys(lines).concat(named))) {
     const x = lines[pid] || lineFor(ctx, L, pid);
     lines[pid] = x;
-    facts[pid] = { name: x.name, positions: positionsOf(pid), proj: x.locked ? val(pid) : x.available ? val(pid) : 0, floor: x.locked ? null : x.floor ?? null, ceiling: x.locked ? null : x.ceiling ?? null, locked: x.locked, kick: kickOf(pid), injury_status: fresh(ctx, pid).inj || null, zero_reason: x.zero_reason || null, why: null, roster_slot: slotOfRoster(pid) };
+    facts[pid] = { name: x.name, positions: positionsOf(pid), proj: x.locked ? val(pid) : x.available ? val(pid) : 0, floor: x.locked ? null : x.floor ?? null, ceiling: x.locked ? null : x.ceiling ?? null, locked: x.locked, kick: kickOf(pid), injury_status: fresh(ctx, pid).inj || null, zero_reason: x.zero_reason || null, why: x.locked ? null : (x.proj_why || null), roster_slot: slotOfRoster(pid) };
   }
   const elig = (s: string) => { const n = SS.normSlot(s); return SS.FLEX_ALLOWED[n] || [n]; };
   const gameKicks: number[] = [];

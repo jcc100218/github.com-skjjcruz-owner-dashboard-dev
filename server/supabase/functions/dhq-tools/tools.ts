@@ -242,7 +242,7 @@ export function seasonBits(ctx: Ctx, L: LeagueRow, pid: string) {
     const dl = dhqOn ? d.players[pid] : null;
     if (dl && !dl.no_line) {
       out.proj_this_week = round1(Number(dl.mean) || 0);
-      if (Number(dl.mean) > 0) { out.proj_floor = round1(Number(dl.floor) || 0); out.proj_ceiling = round1(Number(dl.ceiling) || 0); }
+      if (Number(dl.mean) > 0) { out.proj_floor = round1(Number(dl.floor) || 0); out.proj_ceiling = round1(Number(dl.ceiling) || 0); if (dl.why) out.proj_why = String(dl.why); }
     } else if (!dhqOn) {
       const pr = (L.snapshot.proj || {})[pid];
       if (pr != null) out.proj_this_week = round1(pr);
@@ -449,7 +449,7 @@ function pickValues(ctx: Ctx, L: LeagueRow, args: any) {
 }
 
 export const NEWS_STEP = 'Before you answer, read latest_news (the player\'s own most recent report, plus latest_news.stories: every story of the last two weeks linked to him, "about him" or "via" the team news that reaches him, like a new play-caller or his quarterback\'s injury) and team_news (his team\'s headlines from the last 7 days) for EACH player and lead with the biggest item on each side: a new play-caller or head coach, a quarterback change, a teammate trade or injury that shifts targets or carries, a role change, practice status. A coaching or play-calling change outranks a cold stretch of box scores. If you can also search the web, add anything newer. Never tell the member to go check something themselves.';
-export type ProjLine = { id: string; name: string; pos: string; nfl_team: string; nfl_opponent?: string; game_date?: string | null; game_status?: string; injury?: string; proj_this_week?: number | null; proj_floor?: number; proj_ceiling?: number; scored_this_week?: number; this_week?: string; season_games?: number; season_avg?: number | null; game_log?: string };
+export type ProjLine = { id: string; name: string; pos: string; nfl_team: string; nfl_opponent?: string; game_date?: string | null; game_status?: string; injury?: string; proj_this_week?: number | null; proj_floor?: number; proj_ceiling?: number; proj_why?: string; scored_this_week?: number; this_week?: string; season_games?: number; season_avg?: number | null; game_log?: string };
 export function projLine(ctx: Ctx, L: LeagueRow, pid: string): ProjLine {
   const p = fresh(ctx, pid);
   const bits = seasonBits(ctx, L, pid) as Partial<ProjLine>;
@@ -460,7 +460,7 @@ async function weeklyProjections(ctx: Ctx, L: LeagueRow, args: any) {
   (args.players || []).slice(0, 20).forEach((q: unknown) => { const pid = resolveOne(ctx, L, q); if (pid) ids.push(pid); else unknown.push(String(q)); });
   const [blurbs, liveAt] = await Promise.all([latestBlurbs(ctx, ids), goLive(ctx, L, ids)]);
   const withNews = (pid: string) => ({ ...projLine(ctx, L, pid), latest_news: blurbs[pid], team_news: teamNews(ctx, fresh(ctx, pid).t) });
-  return { league_id: L.league_id, week: L.snapshot.proj_week, scoring: 'this league\'s scoring', before_you_answer: NEWS_STEP, news_as_of: ctx.news ? ctx.news.fetched_at : undefined, live_as_of: liveAt, note: 'proj_this_week is DHQ\'s projection in this league\'s scoring (the number on the app\'s Lineup screen; proj_floor and proj_ceiling are his range); null means he has no role this week. game_log is points scored each week this season (DNP = did not play). A null projection means Sleeper is not projecting him this week.', players: ids.map(withNews), not_found: unknown.length ? unknown : undefined, numbers_as_of: L.built_at };
+  return { league_id: L.league_id, week: L.snapshot.proj_week, scoring: 'this league\'s scoring', before_you_answer: NEWS_STEP, news_as_of: ctx.news ? ctx.news.fetched_at : undefined, live_as_of: liveAt, note: 'proj_this_week is DHQ\'s projection in this league\'s scoring (the number on the app\'s Lineup screen; proj_floor and proj_ceiling are his range; proj_why is what moved it); null means he has no role this week. game_log is points scored each week this season (DNP = did not play). A null projection means Sleeper is not projecting him this week.', players: ids.map(withNews), not_found: unknown.length ? unknown : undefined, numbers_as_of: L.built_at };
 }
 async function myMatchup(ctx: Ctx, L: LeagueRow) {
   const me = myRoster(L, ctx.memberId);

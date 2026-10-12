@@ -186,6 +186,8 @@ async function createProjector(shared) {
         const r = D.get(pid);   // with the truth law: no Sleeper line this week reads 0
         if (!r) continue;
         out[pid] = { mean: Number(r.mean) || 0, median: Number(r.median) || 0, floor: Number(r.floor) || 0, ceiling: Number(r.ceiling) || 0 };
+        // What moved his number (the app's own reasons), so the AI can say "DHQ projects X because Y".
+        if (r.why && Number(r.mean) > 0) out[pid].why = String(r.why).slice(0, 200);
         if (r.noSleeper) { out[pid].no_line = true; noLine++; }
         n++;
       }
