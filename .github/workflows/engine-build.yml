@@ -14,6 +14,24 @@ name: Engine build
 on:
   schedule:
     - cron: "17 */2 * * *"
+  # Owner report 2026-10-12: Claude quoted Aaron Donald at ~1 point while the
+  # app showed 3. GitHub's schedule had slipped ~6 hours, so the server was
+  # still on the morning's numbers and the old projection code. A change to
+  # the projection code (or the builder) now rebuilds right away.
+  push:
+    branches: ["main"]
+    paths:
+      - "js/shared/dhq-proj.js"
+      - "js/shared/matchup-engine.js"
+      - "js/shared/matchup-inputs.js"
+      - "js/shared/dhq-baseline.js"
+      - "js/shared/matchup-feeds-espn.js"
+      - "js/shared/weekly-proj.js"
+      - "js/shared/sleeper-proj.js"
+      - "js/shared/nfl-context.js"
+      - "js/utils/sos-engine.js"
+      - "server/engine/**"
+      - ".github/workflows/engine-build.yml"
   workflow_dispatch:
     inputs:
       leagues:
