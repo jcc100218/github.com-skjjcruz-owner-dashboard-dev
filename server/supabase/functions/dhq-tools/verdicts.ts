@@ -194,6 +194,19 @@ export async function startSit(ctx: Ctx, L: LeagueRow, args: any) {
     const blurbs = await latestBlurbs(ctx, named);
     head_to_head = { ...(h || {}), call: text, coin_flip: h ? !!h.close_call : undefined, players: rows.map(x => ({ ...x, in_optimal_lineup: optimalSet.has(x.id), on_my_roster: pool.includes(x.id) || reserve.includes(x.id) || taxi.includes(x.id), latest_news: blurbs[x.id], team_news: teamNews(ctx, x.nfl_team) })) };
   }
+  // Owner ask 2026-10-12: the answer needs the story, not just the number.
+  // Each player in the call (named, or in a change) comes with how he has
+  // played, his health, his latest news and what drives DHQ's number.
+  let player_context: Record<string, unknown> | undefined;
+  try {
+    const nameToPid: Record<string, string> = {};
+    Object.keys(lines).forEach(pid => { nameToPid[lines[pid].name] = pid; });
+    const ctxPids = [...new Set(named.concat((call.changes || []).flatMap((c: any) => [nameToPid[c.start], nameToPid[c.sit]]).filter(Boolean)))].slice(0, 4);
+    if (ctxPids.length) {
+      const blurbs0 = await latestBlurbs(ctx, ctxPids);
+      player_context = Object.fromEntries(ctxPids.map(pid => { const x = lines[pid] || lineFor(ctx, L, pid); return [x.name, { this_week: x.locked ? x.this_week : { proj: x.proj_this_week, floor: x.proj_floor, ceiling: x.proj_ceiling, why: x.proj_why }, injury: x.injury, season_avg: x.season_avg, season_games: x.season_games, game_log: x.game_log, latest_news: blurbs0[pid], team_news: teamNews(ctx, x.nfl_team, 3) }]; }));
+    }
+  } catch { player_context = undefined; }
   const slotOf = (pid: string) => { const i = current.indexOf(pid); return i >= 0 ? slotNames[i] : 'bench'; };
   const lineup = (pids: Array<{ pid: string; slot: string }>) => pids.map(x => ({ slot: x.slot, player: x.pid ? name(ctx, x.pid) : '(empty)', pos: x.pid ? posOf(ctx, L, x.pid) : undefined, pts: x.pid ? round1(val(x.pid)) : 0, locked: x.pid && lines[x.pid] ? lines[x.pid].locked : undefined, status: x.pid && lines[x.pid] ? (lines[x.pid].locked ? lines[x.pid].this_week : lines[x.pid].available ? 'projected' : 'NOT STARTABLE: ' + lines[x.pid].why_unavailable) : undefined, injury: x.pid && lines[x.pid] ? lines[x.pid].injury : undefined }));
   const left = round1(optimalTotal - currentTotal);
@@ -202,6 +215,7 @@ export async function startSit(ctx: Ctx, L: LeagueRow, args: any) {
     recommendation: call.recommendation, decision: call.decision, confidence: call.confidence,
     verdict: call.recommendation,
     head_to_head, asked: call.asked,
+    player_context, answer_with_context: player_context ? 'After the call, give the story for each player from player_context: how he has played this season (season_avg, games played or missed in game_log), health and practice news (injury, latest_news), his role, and what drives DHQ\'s number (this_week.why): "DHQ projects him for X because …". A few sentences, never just a number.' : undefined,
     changes: call.changes, close_calls: call.close_calls, do_not_start: call.do_not_start, questionable: call.questionable,
     points_left_on_bench: left, lineup_is_optimal: left <= 0.05, current_total: currentTotal, optimal_total: optimalTotal,
     swaps: call.changes.map((c: any) => ({ slot: c.slot, start: c.start, sit: c.sit, gain: c.gain_pts, close_call: c.close_call, why: c.why })),
