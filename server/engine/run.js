@@ -22,8 +22,7 @@ const DRY = process.argv.includes('--dry');
 // new (a member just opened one) or changed in Sleeper since their last build
 // (a trade, waiver, lineup or roster move). The full pass every 2 hours still
 // rebuilds everything, refreshes the news index and the shared tables.
-const NEW_ONLY = process.env.NEW_ONLY === '1' || process.argv.includes('--new-only');
-const FAST = NEW_ONLY || process.env.FAST === '1' || process.argv.includes('--fast');
+const FAST = process.env.FAST === '1' || process.argv.includes('--fast');
 // How long a league a member opened stays on the build list without being
 // opened again, and how many brand-new leagues one pass takes on.
 const REQUEST_DAYS = 14;
@@ -87,13 +86,9 @@ function rest(key) {
   if (!DRY) {
     if (!REF || !TOKEN) throw new Error('ENGINE_PROJECT_REF and SUPABASE_ACCESS_TOKEN are required (or pass --dry)');
     await ensureAwake();
-    // The quick passes (every few minutes from the watcher) skip the schema:
-    // the full pass and every deploy apply it.
-    if (!FAST) {
-      await sql(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
-      // New tables reach the REST layer only after its schema cache reloads.
-      await sql("notify pgrst, 'reload schema'").catch(() => {});
-    }
+    await sql(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
+    // New tables reach the REST layer only after its schema cache reloads.
+    await sql("notify pgrst, 'reload schema'").catch(() => {});
     db = rest(await serviceKey());
     for (let i = 0; ; i++) {
       try { await db.select('connect_leagues', 'select=league_id&limit=1'); break; }
@@ -136,11 +131,9 @@ function rest(key) {
   if (FAST && db) {
     const built = new Map((await db.select('league_intel', 'select=league_id,error,built_at')).map(r => [r.league_id, r]));
     const fresh = [], fresh_new = [];
-    // New-only pass (the watcher, every minute): just the leagues never built.
-    if (NEW_ONLY) leagues = leagues.filter(lid => !built.has(lid));
     for (let i = 0; i < leagues.length; i += 8) {
       await Promise.all(leagues.slice(i, i + 8).map(async lid => {
-        const m = NEW_ONLY ? null : await markerOf(lid).catch(() => null);
+        const m = await markerOf(lid).catch(() => null);
         if (m) markers[lid] = m;
         const row = built.get(lid);
         if (!row) fresh_new.push(lid);
@@ -150,10 +143,10 @@ function rest(key) {
       }));
     }
     leagues = fresh.concat(fresh_new.slice(0, NEW_PER_RUN));
-    if (!NEW_ONLY || fresh_new.length) console.log(NEW_ONLY ? 'new-league pass:' : 'quick pass:', fresh_new.length, 'new ·', fresh.length, 'changed ·', leagues.length, 'to build');
+    console.log('quick pass:', fresh_new.length, 'new ·', fresh.length, 'changed ·', leagues.length, 'to build');
     if (!leagues.length) {
       await db.upsert('engine_cache', [{ key: 'league_markers', data: Object.assign({}, priorMarkers, markers), updated_at: new Date().toISOString() }]).catch(() => {});
-      if (!NEW_ONLY) console.log('nothing changed; done');
+      console.log('nothing changed; done');
       process.exit(0);
     }
   }
