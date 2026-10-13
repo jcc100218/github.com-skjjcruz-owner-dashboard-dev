@@ -169,9 +169,3 @@ delete from public.player_news where published_at < now() - interval '30 days';
 -- (path, user agent, whether auth was sent; never a token).
 create table if not exists public.connect_trace (id bigserial primary key, at timestamptz not null default now(), fn text, method text, path text, query text, ua text, origin text, has_auth boolean, status int);
 alter table public.connect_trace enable row level security;
-
--- ONE-TIME CLEANUP (2026-10-13, owner: undo the engine-move step 2 work).
--- Removed again in the next commit once applied.
-drop table if exists public.league_requests;
-delete from public.engine_cache where key = 'league_markers';
-delete from public.league_intel where league_id in ('1359387925078360064', '1265296459788464128');

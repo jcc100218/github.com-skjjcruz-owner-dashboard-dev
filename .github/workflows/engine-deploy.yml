@@ -98,10 +98,6 @@ jobs:
           # Public NFL news only (no league or member data): no sign-in.
           supabase functions deploy dhq-news --project-ref "$ENGINE_PROJECT_REF" --workdir server --use-api --no-verify-jwt
 
-      # ONE-TIME CLEANUP (2026-10-13): remove the undone dhq-league function.
-      - name: Remove the undone dhq-league function
-        run: supabase functions delete dhq-league --project-ref "$ENGINE_PROJECT_REF" || echo "dhq-league already gone"
-
       - name: Smoke test
         run: |
           curl -sS "https://$ENGINE_PROJECT_REF.supabase.co/functions/v1/dhq-tools" | head -c 400; echo
