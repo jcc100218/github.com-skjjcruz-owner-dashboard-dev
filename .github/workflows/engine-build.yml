@@ -14,10 +14,8 @@ name: Engine build
 on:
   schedule:
     - cron: "17 */2 * * *"
-    # Quick pass (engine move, step 2): every 15 minutes, build only leagues a
-    # member just opened for the first time or that changed in Sleeper (a
-    # trade, waiver, lineup or roster move). Exits in seconds when nothing did.
-    - cron: "7,22,37,52 * * * *"
+    # The minute-by-minute passes run in the engine watcher (engine-watch.yml);
+    # GitHub's 15-minute schedule never fired reliably.
   # Owner report 2026-10-12: Claude quoted Aaron Donald at ~1 point while the
   # app showed 3. GitHub's schedule had slipped ~6 hours, so the server was
   # still on the morning's numbers and the old projection code. A change to
@@ -60,7 +58,6 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       ENGINE_PROJECT_REF: hovnqztlbsgsywrbidbh
       LEAGUES: ${{ inputs.leagues }}
-      FAST: ${{ github.event.schedule == '7,22,37,52 * * * *' && '1' || '' }}
     steps:
       - uses: actions/checkout@v6
       # reconai-shared/ is gitignored: the engine files come from the canonical
