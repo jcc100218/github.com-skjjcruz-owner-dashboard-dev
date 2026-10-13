@@ -169,16 +169,3 @@ delete from public.player_news where published_at < now() - interval '30 days';
 -- (path, user agent, whether auth was sent; never a token).
 create table if not exists public.connect_trace (id bigserial primary key, at timestamptz not null default now(), fn text, method text, path text, query text, ua text, origin text, has_auth boolean, status int);
 alter table public.connect_trace enable row level security;
-
--- ── Engine move, step 2 (owner go-ahead 2026-10-13) ──────────────────────
--- Every Sleeper league a member opens in the app (dhq-league writes it).
--- The engine build covers each one seen in the last two weeks; its quick
--- pass builds a newly seen league within about 15 minutes.
-create table if not exists public.league_requests (
-  league_id        text primary key,
-  platform         text not null default 'sleeper',
-  first_seen       timestamptz not null default now(),
-  last_seen        timestamptz not null default now()
-);
-alter table public.league_requests enable row level security;
-create index if not exists league_requests_seen on public.league_requests (last_seen desc);
