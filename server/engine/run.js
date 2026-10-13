@@ -3,6 +3,8 @@
 //   node server/engine/run.js                 # build + store (needs env below)
 //   node server/engine/run.js --dry           # build only; write JSON to ./out
 //   LEAGUES=id1,id2 node server/engine/run.js # override the league list
+//   FAST=1 node server/engine/run.js          # quick pass: only new leagues and
+//                                             # leagues that changed in Sleeper
 //
 // Env (store mode): SUPABASE_ACCESS_TOKEN (Supabase management token, the one
 // the deploy workflows already hold) and ENGINE_PROJECT_REF (the vacant
@@ -16,6 +18,15 @@ const { buildNewsIndex } = require('./news');
 const { createProjector } = require('./dhq-proj');
 
 const DRY = process.argv.includes('--dry');
+// Quick pass (engine-build.yml, every 15 minutes): build only leagues that are
+// new (a member just opened one) or changed in Sleeper since their last build
+// (a trade, waiver, lineup or roster move). The full pass every 2 hours still
+// rebuilds everything, refreshes the news index and the shared tables.
+const FAST = process.env.FAST === '1' || process.argv.includes('--fast');
+// How long a league a member opened stays on the build list without being
+// opened again, and how many brand-new leagues one pass takes on.
+const REQUEST_DAYS = 14;
+const NEW_PER_RUN = 60;
 const REF = process.env.ENGINE_PROJECT_REF || '';
 const TOKEN = process.env.SUPABASE_ACCESS_TOKEN || '';
 const MGMT = 'https://api.supabase.com/v1/projects/' + REF;
@@ -88,10 +99,58 @@ function rest(key) {
   }
 
   // Which leagues: env override, else the active rows in connect_leagues.
+  // Engine move, step 2 (owner go-ahead 2026-10-13): besides the leagues
+  // connected to a member's AI, every Sleeper league a member opened in the
+  // app in the last two weeks (league_requests, written by dhq-league).
   let leagues = (process.env.LEAGUES || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (!leagues.length && db) leagues = (await db.select('connect_leagues', 'select=league_id&active=eq.true')).map(r => r.league_id);
+  let requested = new Set();
+  if (!leagues.length && db) {
+    const connected = (await db.select('connect_leagues', 'select=league_id&active=eq.true')).map(r => r.league_id);
+    const since = new Date(Date.now() - REQUEST_DAYS * 864e5).toISOString();
+    const opened = await db.select('league_requests', 'select=league_id&platform=eq.sleeper&last_seen=gte.' + since + '&order=last_seen.desc&limit=2000').catch(e => { console.warn('league_requests:', e.message); return []; });
+    requested = new Set(opened.map(r => r.league_id));
+    leagues = [...new Set(connected.concat([...requested]))];
+  }
   if (!leagues.length) throw new Error('no leagues to build (set LEAGUES=… or add rows to connect_leagues)');
-  console.log('engine', ENGINE_VERSION, DRY ? '(dry run)' : '', '—', leagues.length, 'league(s)');
+
+  // Quick pass: keep only new leagues and leagues whose Sleeper state moved.
+  // The marker is a hash of what a member could change (rosters, lineups,
+  // this week's transactions, league settings); two Sleeper calls a league.
+  let markers = {}, priorMarkers = {};
+  if (db) priorMarkers = ((await db.select('engine_cache', 'select=data&key=eq.league_markers').catch(() => []))[0] || {}).data || {};
+  const nflNow = await sleeper('/state/nfl').catch(() => null);
+  const markerOf = async lid => {
+    const wk = Number(nflNow && (nflNow.display_week || nflNow.week)) || 1;
+    const [lg, rosters, txns] = await Promise.all([sleeper('/league/' + lid), sleeper('/league/' + lid + '/rosters'), sleeper('/league/' + lid + '/transactions/' + wk).catch(() => [])]);
+    if (!lg) return null;
+    const shape = { s: lg.status, set: lg.settings, sc: lg.scoring_settings, rp: lg.roster_positions,
+      r: (rosters || []).map(r => [r.roster_id, r.owner_id, r.players, r.starters, r.reserve, r.taxi, r.settings && r.settings.wins, r.settings && r.settings.losses, r.settings && r.settings.fpts]),
+      t: (txns || []).map(t => [t.transaction_id, t.status, t.status_updated]) };
+    return require('crypto').createHash('sha1').update(JSON.stringify(shape)).digest('hex');
+  };
+  if (FAST && db) {
+    const built = new Map((await db.select('league_intel', 'select=league_id,error,built_at')).map(r => [r.league_id, r]));
+    const fresh = [], fresh_new = [];
+    for (let i = 0; i < leagues.length; i += 8) {
+      await Promise.all(leagues.slice(i, i + 8).map(async lid => {
+        const m = await markerOf(lid).catch(() => null);
+        if (m) markers[lid] = m;
+        const row = built.get(lid);
+        if (!row) fresh_new.push(lid);
+        else if (row.error && Date.now() - Date.parse(row.built_at) > 6 * 36e5) fresh.push(lid);   // retry a failed league every 6 hours
+        else if (m && priorMarkers[lid] && m !== priorMarkers[lid]) fresh.push(lid);
+        else if (m && !priorMarkers[lid]) fresh.push(lid);   // no marker yet: build once to set it
+      }));
+    }
+    leagues = fresh.concat(fresh_new.slice(0, NEW_PER_RUN));
+    console.log('quick pass:', fresh_new.length, 'new ·', fresh.length, 'changed ·', leagues.length, 'to build');
+    if (!leagues.length) {
+      await db.upsert('engine_cache', [{ key: 'league_markers', data: Object.assign({}, priorMarkers, markers), updated_at: new Date().toISOString() }]).catch(() => {});
+      console.log('nothing changed; done');
+      process.exit(0);
+    }
+  }
+  console.log('engine', ENGINE_VERSION, DRY ? '(dry run)' : '', FAST ? '(quick pass)' : '', '—', leagues.length, 'league(s)', requested.size ? '· ' + requested.size + ' opened by members' : '');
 
   const t0 = Date.now();
   const shared = await loadShared();
@@ -155,6 +214,7 @@ function rest(key) {
       ((row.snapshot || {}).rosters || []).forEach(r => (r.players || []).forEach(pid => rostered.add(String(pid))));
       console.log('✓', row.name, '(' + lid + ')', 'in', (row.build_ms / 1000).toFixed(1) + 's ·', valued, 'players valued ·', row.assessments.length, 'teams');
       if (db) await db.upsert('league_intel', [Object.assign(row, { error: null })]);
+      if (db && !markers[lid]) { const m = await markerOf(lid).catch(() => null); if (m) markers[lid] = m; }
       else fs.writeFileSync(path.join(OUT, lid + '.json'), JSON.stringify(row));
       ok++;
     } catch (e) {
@@ -162,6 +222,13 @@ function rest(key) {
       console.error('✗', lid, e && e.message || e);
       if (db) await db.upsert('league_intel', [{ league_id: lid, platform: 'sleeper', built_at: new Date().toISOString(), engine_version: ENGINE_VERSION, intel: {}, assessments: [], snapshot: {}, error: String(e && e.message || e).slice(0, 500) }]).catch(() => {});
     }
+  }
+
+  if (db) await db.upsert('engine_cache', [{ key: 'league_markers', data: Object.assign({}, priorMarkers, markers), updated_at: new Date().toISOString() }]).catch(e => console.warn('markers:', e.message));
+  if (FAST) {
+    if (db) await db.upsert('engine_runs', [{ started_at: started, finished_at: new Date().toISOString(), engine_version: ENGINE_VERSION, leagues_ok: ok, leagues_failed: failed, notes: 'quick pass' }]).catch(() => {});
+    console.log('quick pass done:', ok, 'built,', failed, 'failed, total', ((Date.now() - t0) / 1000).toFixed(1) + 's');
+    process.exit(failed && !ok ? 1 : 0);
   }
 
   // Shared lookups the server needs beside the leagues.

@@ -60,6 +60,7 @@ jobs:
           deno check server/supabase/functions/dhq-tools/index.ts
           deno check server/supabase/functions/dhq-auth/index.ts
           deno check server/supabase/functions/dhq-news/index.ts
+          deno check server/supabase/functions/dhq-league/index.ts
 
       # The question bank: build one league for real (dry run, nothing
       # stored) and make sure every question still comes back with the facts
@@ -91,12 +92,14 @@ jobs:
           urllib.request.urlopen(req, timeout=60).read()
           PYEOF
 
-      - name: Deploy dhq-tools, dhq-auth and dhq-news
+      - name: Deploy dhq-tools, dhq-auth, dhq-news and dhq-league
         run: |
           supabase functions deploy dhq-tools --project-ref "$ENGINE_PROJECT_REF" --workdir server --use-api --no-verify-jwt
           supabase functions deploy dhq-auth --project-ref "$ENGINE_PROJECT_REF" --workdir server --use-api --no-verify-jwt
           # Public NFL news only (no league or member data): no sign-in.
           supabase functions deploy dhq-news --project-ref "$ENGINE_PROJECT_REF" --workdir server --use-api --no-verify-jwt
+          # Which leagues members open (engine move, step 2): a public league id only.
+          supabase functions deploy dhq-league --project-ref "$ENGINE_PROJECT_REF" --workdir server --use-api --no-verify-jwt
 
       - name: Smoke test
         run: |
@@ -107,3 +110,5 @@ jobs:
           curl -sS "https://$ENGINE_PROJECT_REF.supabase.co/functions/v1/dhq-auth/.well-known/oauth-authorization-server" | head -c 300; echo
           # Courtland Sutton: the news endpoint answers (empty lists before the first build).
           curl -sS "https://$ENGINE_PROJECT_REF.supabase.co/functions/v1/dhq-news?players=5045" | head -c 400; echo
+          # The Psycho League: already built, so dhq-league answers "built".
+          curl -sS "https://$ENGINE_PROJECT_REF.supabase.co/functions/v1/dhq-league?league=1312100327931019264" | head -c 300; echo
