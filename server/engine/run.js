@@ -99,6 +99,29 @@ function rest(key) {
 
   // Past-season history per league lives in engine_cache so each run only
   // refreshes the current season (the engine's own fast path).
+  // Monday-night fix (owner report 2026-10-12): once a game ends Sleeper
+  // drops its players from the week's projections. The rows seen this week
+  // are kept in engine_cache and merged back, but only for a player whose
+  // team has already played: one Sleeper drops before his game stays
+  // dropped (truth law). The app does the same on each device.
+  if (db) {
+    try {
+      const live = r => r && ['pts_ppr', 'pts_half_ppr', 'pts_std', 'pass_att', 'rush_att', 'rec_tgt', 'fga', 'xpm', 'idp_tkl', 'idp_sack'].some(k => Number(r[k]) > 0);
+      const key = 'sleeper_week_' + shared.season + '_' + shared.week;
+      const keptRow = await db.select('engine_cache', 'select=data&key=eq.' + encodeURIComponent(key));
+      const kept = (keptRow[0] && keptRow[0].data) || {};
+      const fresh = {}; Object.keys(shared.projWeek || {}).forEach(pid => { if (live(shared.projWeek[pid])) fresh[pid] = shared.projWeek[pid]; });
+      let back = 0;
+      Object.keys(kept).forEach(pid => {
+        if (fresh[pid]) return;
+        const t = shared.players[pid] && shared.players[pid].team;
+        if (t && shared.weekGames[t] && shared.weekGames[t].played) { shared.projWeek[pid] = kept[pid]; back++; }
+      });
+      await db.upsert('engine_cache', [{ key, data: Object.assign({}, kept, fresh), updated_at: new Date().toISOString() }]);
+      console.log('sleeper week lines:', Object.keys(fresh).length, 'fresh ·', back, 'kept rows restored (games already played)');
+    } catch (e) { console.warn('sleeper week keep:', e.message); }
+  }
+
   const histCache = db ? {
     async get(key) { const rows = await db.select('engine_cache', 'select=data&key=eq.' + encodeURIComponent(key)); return rows[0] ? rows[0].data : null; },
     async set(key, value) { await db.upsert('engine_cache', [{ key, data: value, updated_at: new Date().toISOString() }]); },
