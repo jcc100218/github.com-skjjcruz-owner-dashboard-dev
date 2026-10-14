@@ -231,8 +231,9 @@ export function seasonBits(ctx: Ctx, L: LeagueRow, pid: string) {
     out.scored_this_week = round1(thisWeekPts);
     out.this_week = 'scored ' + round1(thisWeekPts) + ' this week';
   } else {
-    // Owner rulings 2026-10-12: every this-week number is DHQ's projection
-    // (its average week, the number on the app's Lineup screen), and the AI
+    // Owner rulings 2026-10-12/14: every this-week number is DHQ's projection
+    // as the app's Lineup screen shows it (the typical week, the median; lineup
+    // calls rank on the average week, verdicts.ts lineFor), and the AI
     // never sees or quotes Sleeper's. The build projects everyone with a
     // Sleeper line (truth law: no line means no role, so no projection).
     // Sleeper's line is used only when the build stored no DHQ projections
@@ -241,8 +242,8 @@ export function seasonBits(ctx: Ctx, L: LeagueRow, pid: string) {
     const dhqOn = !!(d && d.players && Object.keys(d.players).length && Number(d.week) === wk);
     const dl = dhqOn ? d.players[pid] : null;
     if (dl && !dl.no_line) {
-      out.proj_this_week = round1(Number(dl.mean) || 0);
-      if (Number(dl.mean) > 0) { out.proj_floor = round1(Number(dl.floor) || 0); out.proj_ceiling = round1(Number(dl.ceiling) || 0); if (dl.why) out.proj_why = String(dl.why); }
+      out.proj_this_week = round1(Number(dl.median) || 0);
+      if (Number(dl.mean) > 0 || Number(dl.median) > 0) { out.proj_floor = round1(Number(dl.floor) || 0); out.proj_ceiling = round1(Number(dl.ceiling) || 0); if (dl.why) out.proj_why = String(dl.why); }
     } else if (!dhqOn) {
       const pr = (L.snapshot.proj || {})[pid];
       if (pr != null) out.proj_this_week = round1(pr);

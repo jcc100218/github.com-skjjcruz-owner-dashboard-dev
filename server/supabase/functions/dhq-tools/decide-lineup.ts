@@ -19,8 +19,9 @@
 //                 Questionable starters in late games with a pivot, the
 //                 head-to-head between named players, and a confidence.
 //
-// The number is DHQ's weekly projection (its average week) in this league's
-// scoring, the Lab's number; when the build stored none, floor/ceiling and a
+// Ranked on DHQ's average week (`avg`) in this league's scoring, the Lab's
+// call; the number quoted for a player (`proj`) is the one the app's Lineup
+// screen shows (owner rule 2026-10-14, one number everywhere); when the build stored none, floor/ceiling and a
 // win chance are missing, so a coin flip keeps the higher projection.
 // deno-lint-ignore-file no-explicit-any
 
@@ -120,7 +121,7 @@ function tiebreakFor(winPct: number | null | undefined, statWord: string) {
 }
 // facts: { week, slots:[{idx,slotName,elig}], current:{idx:pid}, placed:{idx:pid},
 //   current_total, best_total, locks_loaded, sleeper_loaded, win_pct,
-//   players:{ pid: { name, positions[], proj, floor, ceiling, locked, kick,
+//   players:{ pid: { name, positions[], proj (shown), avg (ranked on), floor, ceiling, locked, kick,
 //     injury_status, zero_reason, why, roster_slot } }, asked:[pid], not_found:[name],
 //   game_kicks:[ms] (kickoff of each game this week not started yet),
 //   stat_word (what proj is, e.g. 'projection'), source_note (one evidence line) }
@@ -129,7 +130,10 @@ export function startSitCall(facts: any) {
   const statWord = String(F.stat_word || 'projection');
   const slots = F.slots || [], current = F.current || {}, placed = F.placed || {};
   const nm = (pid: string) => (P[pid] && P[pid].name) || String(pid);
-  const pj = (pid: string) => (P[pid] && P[pid].proj != null ? Number(P[pid].proj) : 0);
+  // Ranked on the average week (`avg`) when given; `proj` is the shown number.
+  const pj = (pid: string) => (P[pid] && P[pid].avg != null ? Number(P[pid].avg) : P[pid] && P[pid].proj != null ? Number(P[pid].proj) : 0);
+  // The number to quote: what the Lineup screen shows.
+  const sh = (pid: string) => (P[pid] && P[pid].proj != null ? Number(P[pid].proj) : 0);
   const slotName = (k: string) => { const s = slots.find((x: any) => String(x.idx) === String(k)); return s ? s.slotName : ''; };
   const slotElig = (k: string) => { const s = slots.find((x: any) => String(x.idx) === String(k)); return s ? s.elig : []; };
   const fitsSlot = (pid: string, k: string) => ((P[pid] && P[pid].positions) || []).some((q: string) => slotElig(k).includes(q));
@@ -165,7 +169,7 @@ export function startSitCall(facts: any) {
     const gain = pj(c.start) - (b ? pj(c.sit!) : 0);
     const top = Math.max(pj(c.start), b ? pj(c.sit!) : 0);
     const close = !!b && !(b.zero_reason && HARD_NO.has(b.zero_reason)) && (gain < CLOSE_PTS || gain < CLOSE_PCT * top);
-    const bits = [nm(c.start) + ' ' + f1(pj(c.start)) + (b ? ' vs ' + nm(c.sit!) + ' ' + f1(pj(c.sit!)) : ' into an empty slot') + ' (' + statWord + ')'];
+    const bits = [(statWord === 'DHQ projection' ? 'DHQ projects ' : '') + nm(c.start) + ' ' + f1(sh(c.start)) + (b ? ' vs ' + nm(c.sit!) + ' ' + f1(sh(c.sit!)) : ' into an empty slot') + (statWord === 'DHQ projection' ? '' : ' (' + statWord + ')')];
     if (b && b.zero_reason) bits.push(nm(c.sit!) + ': ' + b.zero_reason);
     if (a.injury_status) bits.push(nm(c.start) + ' is ' + a.injury_status);
     if (b && b.injury_status && !b.zero_reason) bits.push(nm(c.sit!) + ' is ' + b.injury_status);
@@ -221,10 +225,10 @@ export function startSitCall(facts: any) {
     const pivLater = !!(piv && kick && Number(P[piv].kick) >= kick);
     let note: string;
     if (!piv) note = 'No healthy bench player fits his slot.';
-    else if (late === true && !pivLater) note = 'Nobody on the bench who fits his slot plays as late: if he is ruled out about 90 minutes before kickoff, you cannot swap. Best fallback is ' + nm(piv) + ' (' + f1(pj(piv)) + '), whose game starts earlier; decide before it does.';
+    else if (late === true && !pivLater) note = 'Nobody on the bench who fits his slot plays as late: if he is ruled out about 90 minutes before kickoff, you cannot swap. Best fallback is ' + nm(piv) + ' (' + f1(sh(piv)) + '), whose game starts earlier; decide before it does.';
     else if (pivLater) note = 'Start him; if he is inactive, swap in ' + nm(piv) + ' (plays in the same or a later game).';
     else note = 'If he is ruled out before ' + nm(piv) + '\'s game locks, swap in ' + nm(piv) + '.';
-    questionable.push({ player: nm(pid), status: x.injury_status, slot: slotName(k), late_game: late, pivot: piv ? nm(piv) : null, pivot_proj: piv ? r1(pj(piv)) : null, pivot_plays_later: pivLater, note });
+    questionable.push({ player: nm(pid), status: x.injury_status, slot: slotName(k), late_game: late, pivot: piv ? nm(piv) : null, pivot_proj: piv ? r1(sh(piv)) : null, pivot_plays_later: pivLater, note });
   });
   if (questionable.length) rules.push('Questionable starter in a late game: start him only with a pivot who plays the same or a later game.');
 

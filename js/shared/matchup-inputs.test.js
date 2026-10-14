@@ -101,9 +101,10 @@ test('receivers show the typical week: three quarters of the expected TD points 
     const cut = (b) => b.mean - b.typical, td = (b) => b.line.rec_td * 6;
     assert.ok(Math.abs(cut(low) - 0.75 * td(low)) < 0.02, 'low cut ' + cut(low) + ' td pts ' + td(low));
     assert.ok(Math.abs(cut(high) - 0.25 * td(high)) < 0.02, 'high cut ' + cut(high) + ' td pts ' + td(high));
-    // the roster row shows the average week (owner ruling 2026-10-12); the
-    // typical week rides along for the floor and the closeness audit
-    assert.equal(low.median, low.mean);
+    // the roster row shows the typical week (owner ruling 2026-10-13, back
+    // from the average of 2026-10-12); the average rides along for totals
+    assert.equal(low.median, low.typical);
+    assert.ok(low.median < low.mean);
     assert.ok(low.floor <= low.typical);
 });
 
@@ -260,4 +261,47 @@ test('a defender back from a missed game keeps the snaps of his last game played
     const ctx = { week: 5, depth: null, recentWeeks: [wk(2, { gp: 1, idp_tkl: 3, def_snp: 33, tm_def_snp: 58 }), wk(3, { gp: 1, idp_tkl: 1, def_snp: 35, tm_def_snp: 67 }), wk(4, null)] };
     const r = I.roleFor('don', playersData.don, 'DL', 'LAR', opts, ctx);
     assert.ok(r.snapScale && Math.abs(r.snapScale.snap - 35 / 67) < 0.005, 'snap ' + JSON.stringify(r.snapScale) + ' (the missed week read as 0%)');
+});
+
+// Safety check: a healthy starter far under both Sleeper and his own normal is held up.
+const safetyCase = (shown, sleeper, posRank, games) => {
+    const playersData = { s1: { player_id: 's1', team: 'LAR', position: 'WR' } };
+    const opts = { playersData, scoring: HALF, priorData: {} };
+    const ctx = { week: 5, recentWeeks: (games || []).map((g, i) => ({ week: i + 1, stats: { s1: Object.assign({ gp: 1, off_snp: 60, tm_off_snp: 64 }, g) } })) };
+    const out = { available: true, sleeper, points: { median: shown, typical: shown, mean: shown * 1.2, floor: shown * 0.7, ceiling: shown * 1.35 }, why: [] };
+    I._safetyCheck('s1', out, { role: { posRank } }, opts, ctx);
+    return out;
+};
+test('a starter under half of Sleeper and of his normal is held at 70% of Sleeper', () => {
+    const out = safetyCase(1.7, 12.3, 1, [{ rec_tgt: 9, rec: 6, rec_yd: 80 }, { rec_tgt: 10, rec: 7, rec_yd: 95 }]);
+    assert.ok(out.safety, 'fired');
+    assert.ok(Math.abs(out.points.median - 0.7 * 12.3) < 0.02, 'median ' + out.points.median);
+    assert.ok(out.points.mean > out.points.median, 'the average stays above the typical week');
+    assert.equal(out.why[0].key, 'safety');
+});
+test('the safety check leaves alone a number above half of Sleeper, a backup, and a man past his old role', () => {
+    assert.equal(safetyCase(7, 12, 1, []).safety, undefined, 'over half of Sleeper');
+    assert.equal(safetyCase(1.5, 12, 5, []).safety, undefined, 'a WR5 is no starter');
+    // under Sleeper's line but at his own normal (two 2-target games): he lost the job, not a bug
+    assert.equal(safetyCase(2, 12, 1, [{ rec_tgt: 2, rec: 1, rec_yd: 12 }, { rec_tgt: 2, rec: 1, rec_yd: 15 }]).safety, undefined, 'at his normal');
+});
+
+// Every-down defender: no weekly line, but healthy, playing, and on the field
+// for most of his team's last game (Rasul Douglas, week 6 2026).
+const everyDownCase = (snap, tag, opp, pos) => {
+    const playersData = { rd: { player_id: 'rd', team: 'WAS', position: pos || 'CB', injury_status: tag || null } };
+    const ctx = { week: 6, recentWeeks: [{ week: 5, stats: { TEAM_WAS: { gp: 1 }, rd: { gp: 1, idp_tkl: 10, def_snp: snap, tm_def_snp: 89 } } }] };
+    const out = { available: true, sleeper: null, points: { median: 5.8 } };
+    return I._everyDown('rd', out, { team: 'WAS', opponentAbbr: opp === undefined ? 'SF' : opp }, { playersData }, ctx);
+};
+test('a healthy every-down defender keeps his number without a weekly line', () => {
+    assert.equal(everyDownCase(87), true, '87 of 89 snaps');
+    assert.equal(everyDownCase(45), true, 'half the snaps');
+});
+test('the every-down exception skips part-timers, tagged players, byes and offense', () => {
+    assert.equal(everyDownCase(30), false, 'a third of the snaps');
+    assert.equal(everyDownCase(87, 'Questionable'), false, 'an injury tag');
+    assert.equal(everyDownCase(87, 'IR'), false, 'IR');
+    assert.equal(everyDownCase(87, null, null), false, 'no game this week');
+    assert.equal(everyDownCase(87, null, 'SF', 'WR'), false, 'not a defender');
 });

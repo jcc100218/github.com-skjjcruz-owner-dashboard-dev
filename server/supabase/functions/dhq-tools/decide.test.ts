@@ -115,6 +115,11 @@ Deno.test('start/sit: a clear gain is a firm call with high confidence', () => {
   eq(out.changes[0].close_call, false); eq(out.changes[0].gain_pts, 4);
   eq(out.recommendation, 'Start Chop Robinson over Derick Hall at DL (+4 pts).'); eq(out.confidence, 'high');
 });
+Deno.test('start/sit: gains rank on the average week (avg); the why quotes the shown number (proj)', () => {
+  const out = startSitCall(base({ a: SP('Typical', 7.0, { avg: 9.0 }), b: SP('Other', 7.4, { avg: 5.0, roster_slot: 'starter' }) }, { win_pct: 50, stat_word: 'DHQ projection' }));
+  eq(out.changes[0].gain_pts, 4);
+  eq(out.changes[0].why.startsWith('DHQ projects Typical 7.0 vs Other 7.4'), true);
+});
 Deno.test('start/sit: a sit who is out is never a coin flip; locks not loaded means low confidence', () => {
   const out = startSitCall(base({ a: SP('Backup', 1.0), b: SP('Hurt', 0, { roster_slot: 'starter', zero_reason: 'out' }) }, { locks_loaded: false }));
   eq(out.changes[0].close_call, false); eq(out.confidence, 'low'); ok(out.warning); eq(out.do_not_start, [{ player: 'Hurt', reason: 'out' }]);
