@@ -76,7 +76,7 @@
     "@capacitor/cli": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "@capacitor/ios": "^8.5.2",
-    "@revenuecat/purchases-capacitor": "^13.7.0",
+    "@revenuecat/purchases-capacitor": "^13.7.4",
     "esbuild": "^0.28.2",
     "terser": "^5.51.2"
   },
