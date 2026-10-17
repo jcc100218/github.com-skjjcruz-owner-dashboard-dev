@@ -169,3 +169,27 @@ delete from public.player_news where published_at < now() - interval '30 days';
 -- (path, user agent, whether auth was sent; never a token).
 create table if not exists public.connect_trace (id bigserial primary key, at timestamptz not null default now(), fn text, method text, path text, query text, ua text, origin text, has_auth boolean, status int);
 alter table public.connect_trace enable row level security;
+
+-- ── Leagues built on request (owner go-ahead 2026-10-17) ──────────────────
+-- The app sends the Sleeper league ids a member uses (dhq-request); the
+-- engine server builds a new one within seconds (server/engine/host/
+-- requests.js) and the hourly build keeps it fresh until expires_at (30 days
+-- after it was last seen). A row here grants nothing: who may see a league
+-- is decided by roster membership (dhq-tools inLeague), never by this table.
+create table if not exists public.build_requests (
+  league_id        text primary key,
+  status           text not null default 'pending',   -- pending | built | failed
+  requested_at     timestamptz not null default now(),
+  seen_at          timestamptz not null default now(),
+  expires_at       timestamptz not null default now() + interval '30 days',
+  last_built_at    timestamptz,
+  last_error       text,
+  ip_hash          text
+);
+alter table public.build_requests enable row level security;
+create index if not exists build_requests_pending on public.build_requests (status, requested_at);
+create index if not exists build_requests_ip on public.build_requests (ip_hash, requested_at desc);
+
+-- Full hourly builds vs. one-league request builds: GitHub's fallback check
+-- (server/engine/host/lease.js gate) looks at full builds only.
+alter table public.engine_runs add column if not exists kind text not null default 'full';

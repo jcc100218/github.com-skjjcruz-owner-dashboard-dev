@@ -38,7 +38,7 @@ async function sql(query) {
     let build = true, why = 'check failed';
     try {
       const rows = await sql(
-        "select extract(epoch from (now() - (select max(finished_at) from public.engine_runs where leagues_ok > 0)))/60 as age_min, " +
+        "select extract(epoch from (now() - (select max(finished_at) from public.engine_runs where leagues_ok > 0 and coalesce(kind, 'full') = 'full')))/60 as age_min, " +
         "(select extract(epoch from (now() - updated_at))/60 from public.engine_cache where key = 'build_lease') as lease_min");
       const age = rows[0] && rows[0].age_min != null ? Number(rows[0].age_min) : null;
       const lease = rows[0] && rows[0].lease_min != null ? Number(rows[0].lease_min) : null;

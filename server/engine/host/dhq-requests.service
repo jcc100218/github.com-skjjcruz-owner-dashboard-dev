@@ -1,0 +1,15 @@
+[Unit]
+Description=DHQ engine: build leagues members just opened (checks every 15 s)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=ubuntu
+EnvironmentFile=/etc/dhq-engine.env
+ExecStart=/usr/bin/node /opt/dhq/app/server/engine/host/requests.js
+Restart=always
+RestartSec=30
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

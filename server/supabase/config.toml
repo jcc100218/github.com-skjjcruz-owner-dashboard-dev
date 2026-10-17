@@ -8,3 +8,7 @@ verify_jwt = false
 
 [functions.dhq-auth]
 verify_jwt = false
+
+# Queues Sleeper league ids for the engine server; grants nothing.
+[functions.dhq-request]
+verify_jwt = false

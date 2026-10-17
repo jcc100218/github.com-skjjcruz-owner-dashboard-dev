@@ -16,6 +16,10 @@ const { buildNewsIndex } = require('./news');
 const { createProjector } = require('./dhq-proj');
 
 const DRY = process.argv.includes('--dry');
+// A request build (server/engine/host/requests.js): only the leagues a member
+// just opened. It skips the shared lookups and the news index (the hourly
+// build owns those) and never stores an error row over a good league.
+const PARTIAL = process.env.ENGINE_PARTIAL === '1';
 const REF = process.env.ENGINE_PROJECT_REF || '';
 const TOKEN = process.env.SUPABASE_ACCESS_TOKEN || '';
 const MGMT = 'https://api.supabase.com/v1/projects/' + REF;
@@ -61,6 +65,10 @@ function rest(key) {
       const r = await fetch(base + table, { method: 'POST', headers: Object.assign({ Prefer: 'resolution=merge-duplicates,return=minimal' }, headers), body: JSON.stringify(rows) });
       if (!r.ok) throw new Error('upsert ' + table + ' ' + r.status + ': ' + (await r.text()).slice(0, 300));
     },
+    async update(table, q, patch) {
+      const r = await fetch(base + table + '?' + q, { method: 'PATCH', headers: Object.assign({ Prefer: 'return=minimal' }, headers), body: JSON.stringify(patch) });
+      if (!r.ok) throw new Error('update ' + table + ' ' + r.status + ': ' + (await r.text()).slice(0, 300));
+    },
     async select(table, q) {
       const r = await fetch(base + table + '?' + q, { headers });
       if (!r.ok) throw new Error('select ' + table + ' ' + r.status + ': ' + (await r.text()).slice(0, 300));
@@ -87,9 +95,14 @@ function rest(key) {
     fs.mkdirSync(OUT, { recursive: true });
   }
 
-  // Which leagues: env override, else the active rows in connect_leagues.
+  // Which leagues: env override, else the active rows in connect_leagues
+  // plus every league a member opened in the last 30 days (build_requests).
   let leagues = (process.env.LEAGUES || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (!leagues.length && db) leagues = (await db.select('connect_leagues', 'select=league_id&active=eq.true')).map(r => r.league_id);
+  if (!leagues.length && db) {
+    leagues = (await db.select('connect_leagues', 'select=league_id&active=eq.true')).map(r => r.league_id);
+    const asked = await db.select('build_requests', 'select=league_id&status=neq.failed&expires_at=gt.' + encodeURIComponent(new Date().toISOString())).catch(e => { console.warn('build requests:', e.message); return []; });
+    leagues = [...new Set(leagues.concat(asked.map(r => r.league_id)))];
+  }
   if (!leagues.length) throw new Error('no leagues to build (set LEAGUES=… or add rows to connect_leagues)');
   console.log('engine', ENGINE_VERSION, DRY ? '(dry run)' : '', '—', leagues.length, 'league(s)');
 
@@ -128,6 +141,7 @@ function rest(key) {
   } : null;
 
   let ok = 0, failed = 0;
+  const builtIds = [], failedIds = {};
   const rostered = new Set();
   // DHQ weekly projections (server/engine/dhq-proj.js): one projection
   // context per run, then every rostered player per league. A failure here
@@ -156,12 +170,26 @@ function rest(key) {
       console.log('✓', row.name, '(' + lid + ')', 'in', (row.build_ms / 1000).toFixed(1) + 's ·', valued, 'players valued ·', row.assessments.length, 'teams');
       if (db) await db.upsert('league_intel', [Object.assign(row, { error: null })]);
       else fs.writeFileSync(path.join(OUT, lid + '.json'), JSON.stringify(row));
-      ok++;
+      ok++; builtIds.push(lid);
     } catch (e) {
       failed++;
       console.error('✗', lid, e && e.message || e);
-      if (db) await db.upsert('league_intel', [{ league_id: lid, platform: 'sleeper', built_at: new Date().toISOString(), engine_version: ENGINE_VERSION, intel: {}, assessments: [], snapshot: {}, error: String(e && e.message || e).slice(0, 500) }]).catch(() => {});
+      failedIds[lid] = String(e && e.message || e).slice(0, 300);
+      if (db && !PARTIAL) await db.upsert('league_intel', [{ league_id: lid, platform: 'sleeper', built_at: new Date().toISOString(), engine_version: ENGINE_VERSION, intel: {}, assessments: [], snapshot: {}, error: String(e && e.message || e).slice(0, 500) }]).catch(() => {});
     }
+  }
+
+  // Record request leagues' outcomes (rows exist only for requested leagues,
+  // so a PATCH never creates one).
+  if (db) {
+    const now = new Date().toISOString();
+    if (builtIds.length) await db.update('build_requests', 'league_id=in.(' + builtIds.join(',') + ')', { status: 'built', last_built_at: now, last_error: null }).catch(e => console.warn('build requests:', e.message));
+    for (const [lid, err] of Object.entries(failedIds)) await db.update('build_requests', 'league_id=eq.' + encodeURIComponent(lid), { status: PARTIAL ? 'failed' : 'built', last_error: err }).catch(() => {});
+  }
+  if (PARTIAL) {
+    if (db) await db.upsert('engine_runs', [{ started_at: started, finished_at: new Date().toISOString(), engine_version: ENGINE_VERSION, leagues_ok: ok, leagues_failed: failed, notes: process.env.ENGINE_RUNNER || null, kind: 'partial' }]).catch(e => console.warn('run log:', e.message));
+    console.log('done (request build):', ok, 'built,', failed, 'failed, total', ((Date.now() - t0) / 1000).toFixed(1) + 's');
+    process.exit(failed && !ok ? 1 : 0);
   }
 
   // Shared lookups the server needs beside the leagues.
