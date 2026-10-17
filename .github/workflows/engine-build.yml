@@ -13,8 +13,9 @@
 # Since 2026-10-17 the engine server (server/engine/host/, run by hand with
 # engine-server.yml) builds every hour at :17. This workflow is the fallback:
 # its hourly check builds only when the server's last finished build is over
-# 130 minutes old and no server build is in progress. A code push or a run by
-# hand still builds right away.
+# 130 minutes old and no server build is in progress. A code push starts a
+# server build at once (GitHub builds itself if the server can't); a run by
+# hand builds here.
 name: Engine build
 
 on:
@@ -67,11 +68,25 @@ jobs:
       - uses: actions/checkout@v6
       # Scheduled runs are the fallback: skip while the engine server is
       # keeping the numbers fresh (lease.js gate fails open: build on doubt).
+      # A code push hands the rebuild to the server (it pulls the new code
+      # first), so only one builder ever writes; GitHub builds itself only
+      # if the server can't be reached. A run by hand always builds here.
       - name: Fallback check
         id: gate
+        env:
+          ENGINE_HOST: ${{ secrets.ENGINE_HOST }}
+          ENGINE_SSH_KEY: ${{ secrets.ENGINE_SSH_KEY }}
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
             node server/engine/host/lease.js gate >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ] && [ -n "$ENGINE_HOST" ]; then
+            umask 077; mkdir -p ~/.ssh; printf '%s\n' "$ENGINE_SSH_KEY" > ~/.ssh/engine
+            if ssh -i ~/.ssh/engine -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o BatchMode=yes "ubuntu@$ENGINE_HOST" 'systemctl is-enabled --quiet dhq-engine.timer && sudo systemctl start --no-block dhq-engine.service'; then
+              echo "build=false" >> "$GITHUB_OUTPUT"; echo "handed the rebuild to the engine server"
+            else
+              echo "build=true" >> "$GITHUB_OUTPUT"; echo "engine server not taking builds: building here"
+            fi
+            rm -f ~/.ssh/engine
           else
             echo "build=true" >> "$GITHUB_OUTPUT"
           fi
