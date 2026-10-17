@@ -9,11 +9,17 @@
 # Secrets: SUPABASE_ACCESS_TOKEN (the management token the function deploy
 # already uses). No new secret: the script reads the engine project's own
 # service key through the management API at run time.
+#
+# Since 2026-10-17 the engine server (server/engine/host/, run by hand with
+# engine-server.yml) builds every hour at :17. This workflow is the fallback:
+# its hourly check builds only when the server's last finished build is over
+# 130 minutes old and no server build is in progress. A code push or a run by
+# hand still builds right away.
 name: Engine build
 
 on:
   schedule:
-    - cron: "17 */2 * * *"
+    - cron: "47 * * * *"
   # Owner report 2026-10-12: Claude quoted Aaron Donald at ~1 point while the
   # app showed 3. GitHub's schedule had slipped ~6 hours, so the server was
   # still on the morning's numbers and the old projection code. A change to
@@ -56,19 +62,34 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       ENGINE_PROJECT_REF: hovnqztlbsgsywrbidbh
       LEAGUES: ${{ inputs.leagues }}
+      ENGINE_RUNNER: github
     steps:
       - uses: actions/checkout@v6
+      # Scheduled runs are the fallback: skip while the engine server is
+      # keeping the numbers fresh (lease.js gate fails open: build on doubt).
+      - name: Fallback check
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            node server/engine/host/lease.js gate >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
       # reconai-shared/ is gitignored: the engine files come from the canonical
       # DHQ-Shared repo at run time, exactly as the app deploy does.
       - name: Checkout DHQ-Shared (canonical engine)
+        if: steps.gate.outputs.build == 'true'
         uses: actions/checkout@v6
         with:
           repository: skjjcruz/DHQ-Shared
           path: dhq-shared-src
       - uses: actions/setup-node@v6
+        if: steps.gate.outputs.build == 'true'
         with:
           node-version: 22
       - name: Sync shared modules from DHQ-Shared
+        if: steps.gate.outputs.build == 'true'
         run: DHQ_SHARED_SOURCE="$GITHUB_WORKSPACE/dhq-shared-src" node scripts/sync-reconai-shared.cjs
       - name: Build and store
+        if: steps.gate.outputs.build == 'true'
         run: node server/engine/run.js
