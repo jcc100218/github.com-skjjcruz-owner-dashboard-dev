@@ -5,6 +5,7 @@
 // ~1.4 GB of the 6 GB (well over 20% with the system's own use) and does
 // nothing else. Run by dhq-keepwarm.service at the lowest priority.
 'use strict';
+const { Buffer } = require('buffer');
 const MB = Number(process.env.KEEPWARM_MB || 1400);
 const CHUNK = 64 * 1024 * 1024;
 const held = [];
