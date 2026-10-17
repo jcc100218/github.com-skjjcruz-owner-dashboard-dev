@@ -3192,6 +3192,7 @@ WRShared.preloadMany(WR_SHARED_FILES);
 <script src="js/shared/sleeper-proj.js?v=20261013keep1a"></script>
 <script src="js/shared/game-locks.js?v=20261009lock2"></script>
 <script src="js/shared/player-news.js?v=20261010news1"></script>
+<script src="js/shared/server-build.js?v=20261017srv2a"></script>
 <script src="js/shared/ask-tools.js?v=20261014shown1a"></script>
 <script src="js/shared/ask-tools-league.js?v=20261010odds1"></script>
 <script src="js/shared/ask-tools-players.js?v=20261010waiver1"></script>
@@ -3391,9 +3392,9 @@ WRShared.preloadMany(WR_SHARED_FILES);
      "alex" lazy group — inert at boot, loaded on first GM's Office / Strategy open. -->
 <script type="text/babel" data-wr-defer="alex" src="js/tabs/strategy-editor.js?v=20261001tier1"></script>
 <!-- 7. League detail: coordinator shell, depends on all above -->
-    <script type="text/babel" src="js/league-detail.js?v=20261012live1"></script>
+    <script type="text/babel" src="js/league-detail.js?v=20261017srv1a"></script>
 <!-- 8. App: OwnerDashboard + ReactDOM.render (loads last) -->
-<script type="text/babel" src="js/app.js?v=20261005b154a"></script>
+<script type="text/babel" src="js/app.js?v=20261017srv1a"></script>
 
 <!-- All JSX code extracted to js/ modules. Only bootstrap remains. -->
 <script>
@@ -3467,7 +3468,7 @@ window.addEventListener('appinstalled', () => {
 <!-- Deploy tag (owner ask 2026-08-19): a tiny always-visible build code so the
      owner can read back exactly which version his device is running before
      testing — kills the stale-cache guessing game. Bump the code every deploy. -->
-<div id="dhq-build-tag" style="position:fixed;bottom:2px;right:6px;z-index:2147483647;font:700 9px/1.4 monospace;color:rgba(255,255,255,0.30);pointer-events:none;user-select:none;">b179a</div>
+<div id="dhq-build-tag" style="position:fixed;bottom:2px;right:6px;z-index:2147483647;font:700 9px/1.4 monospace;color:rgba(255,255,255,0.30);pointer-events:none;user-select:none;">b180a</div>
 </body>
 </html>
 <!-- build 1774212614 -->
