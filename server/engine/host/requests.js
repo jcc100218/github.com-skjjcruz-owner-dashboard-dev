@@ -28,10 +28,10 @@ async function tick() {
   const ids = rows.map(r => String(r.league_id)).filter(id => /^\d{10,20}$/.test(id));
   if (!ids.length) return;
   console.log('building on request:', ids.join(','));
-  // build.sh waits for the hourly build if one is running (BUILD_WAIT=1).
+  // build.sh waits for the hourly build if one is running.
   const res = spawnSync('/opt/dhq/app/server/engine/host/build.sh', [], {
-    env: Object.assign({}, process.env, { LEAGUES: ids.join(','), ENGINE_PARTIAL: '1', ENGINE_RUNNER: 'request', BUILD_WAIT: '1' }),
-    stdio: 'inherit', timeout: 30 * 60 * 1000,
+    env: Object.assign({}, process.env, { LEAGUES: ids.join(','), ENGINE_PARTIAL: '1', ENGINE_RUNNER: 'request' }),
+    stdio: 'inherit', timeout: 50 * 60 * 1000,
   });
   if (res.status !== 0) console.warn('request build exited', res.status);
   // Anything still pending (the build never reached it) is marked failed so

@@ -100,7 +100,9 @@ function rest(key) {
   let leagues = (process.env.LEAGUES || '').split(',').map(s => s.trim()).filter(Boolean);
   if (!leagues.length && db) {
     leagues = (await db.select('connect_leagues', 'select=league_id&active=eq.true')).map(r => r.league_id);
-    const asked = await db.select('build_requests', 'select=league_id&status=neq.failed&expires_at=gt.' + encodeURIComponent(new Date().toISOString())).catch(e => { console.warn('build requests:', e.message); return []; });
+    // Connected leagues first, then members' leagues most out of date first,
+    // so a run that hits its time budget leaves the freshest work undone.
+    const asked = await db.select('build_requests', 'select=league_id&status=neq.failed&expires_at=gt.' + encodeURIComponent(new Date().toISOString()) + '&order=last_built_at.asc.nullsfirst').catch(e => { console.warn('build requests:', e.message); return []; });
     leagues = [...new Set(leagues.concat(asked.map(r => r.league_id)))];
   }
   if (!leagues.length) throw new Error('no leagues to build (set LEAGUES=… or add rows to connect_leagues)');
@@ -154,7 +156,13 @@ function rest(key) {
     catch (e) { projectorError = e; console.warn('dhq projections unavailable:', e && e.message || e); }
     return projector;
   };
+  // Time budget (minutes): a full run stops starting new leagues after this,
+  // so it always finishes inside its 25-minute limit; the next run picks up
+  // the leagues it didn't reach (most out of date first).
+  const BUDGET_MS = Number(process.env.ENGINE_BUDGET_MIN || 20) * 60 * 1000;
+  let skipped = 0;
   for (const lid of leagues) {
+    if (!PARTIAL && Date.now() - t0 > BUDGET_MS) { skipped++; continue; }
     try {
       const row = await buildLeague(lid, shared, histCache);
       try {
@@ -236,6 +244,7 @@ function rest(key) {
     fs.writeFileSync(path.join(OUT, 'news.json'), JSON.stringify(news));
     if (newsIndex) fs.writeFileSync(path.join(OUT, 'player_news.json'), JSON.stringify(newsIndex.rows));
   }
+  if (skipped) console.log('time budget reached:', skipped, 'league(s) left for the next run');
   console.log('done:', ok, 'built,', failed, 'failed, total', ((Date.now() - t0) / 1000).toFixed(1) + 's; players table', Object.keys(players).length);
   process.exit(failed && !ok ? 1 : 0);
 })().catch(e => { console.error('RUN FAILED:', e && e.stack || e); process.exit(1); });

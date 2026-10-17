@@ -8,5 +8,5 @@ Type=oneshot
 User=ubuntu
 EnvironmentFile=/etc/dhq-engine.env
 ExecStart=/opt/dhq/app/server/engine/host/build.sh
-TimeoutStartSec=30min
+TimeoutStartSec=50min
 Nice=5

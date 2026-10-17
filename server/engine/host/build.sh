@@ -10,8 +10,9 @@ set -euo pipefail
 main() {
   local BASE=/opt/dhq
   exec 9>"$BASE/build.lock"
-  # Hourly runs skip if a build is going; request builds (BUILD_WAIT=1) wait.
-  if [ "${BUILD_WAIT:-}" = "1" ]; then flock -w 1800 9; else flock -n 9 || { echo "another build is running; skipping"; exit 0; }; fi
+  # Wait for a build already going (a request build or the hourly one) rather
+  # than skipping a turn; give up after 20 minutes.
+  flock -w 1200 9 || { echo "another build ran over 20 minutes; skipping"; exit 0; }
 
   git -C "$BASE/app" fetch -q origin main && git -C "$BASE/app" reset -q --hard origin/main
   git -C "$BASE/DHQ-Shared" fetch -q origin && git -C "$BASE/DHQ-Shared" reset -q --hard origin/HEAD
