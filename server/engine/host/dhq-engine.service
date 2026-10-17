@@ -1,0 +1,12 @@
+[Unit]
+Description=DHQ engine build (one run)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+EnvironmentFile=/etc/dhq-engine.env
+ExecStart=/opt/dhq/app/server/engine/host/build.sh
+TimeoutStartSec=30min
+Nice=5

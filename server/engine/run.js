@@ -201,7 +201,7 @@ function rest(key) {
         ]);
       } catch (e) { console.warn('news store:', e.message); }
     }
-    await db.upsert('engine_runs', [{ started_at: started, finished_at: new Date().toISOString(), engine_version: ENGINE_VERSION, leagues_ok: ok, leagues_failed: failed, notes: null }]).catch(e => console.warn('run log:', e.message));
+    await db.upsert('engine_runs', [{ started_at: started, finished_at: new Date().toISOString(), engine_version: ENGINE_VERSION, leagues_ok: ok, leagues_failed: failed, notes: process.env.ENGINE_RUNNER || null }]).catch(e => console.warn('run log:', e.message));
   } else {
     fs.writeFileSync(path.join(OUT, 'players.json'), JSON.stringify(players));
     fs.writeFileSync(path.join(OUT, 'nfl_week.json'), JSON.stringify({ week: shared.week, games: shared.weekGames || {} }));

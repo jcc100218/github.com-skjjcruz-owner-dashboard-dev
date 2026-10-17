@@ -1,0 +1,105 @@
+# Engine server control (owner direction 2026-10-17: the engine build moves
+# from GitHub Actions to our own server, Oracle Always Free, 1 core / 6 GB;
+# GitHub's engine-build.yml stays as the automatic fallback).
+#
+# Run by hand. Actions:
+#   setup    install Node 22, the two repos and the systemd units (idempotent;
+#            leaves the hourly timer as it was)
+#   compare  dry-run one league on GitHub and on the server at the same time
+#            and compare the numbers (nothing is stored)
+#   enable   turn the server's hourly build on   (systemd timer, :17 UTC)
+#   disable  turn it off (GitHub's fallback then builds within ~2 hours)
+#   run      start one real build on the server now
+#   status   timer state, the last build's log tail, the last stored runs
+#
+# Secrets: ENGINE_HOST, ENGINE_SSH_KEY (owner added 2026-10-17),
+# SUPABASE_ACCESS_TOKEN (passed to the server's env file on setup).
+# Logs here are public: nothing secret is ever printed.
+name: Engine server
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "setup | compare | enable | disable | run | status"
+        required: true
+        type: choice
+        options: [status, setup, compare, enable, disable, run]
+      league:
+        description: "League id for compare"
+        required: false
+        type: string
+        default: "1312100327931019264"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-server
+  cancel-in-progress: false
+
+jobs:
+  server:
+    if: github.repository == 'skjjcruz/github.com-skjjcruz-owner-dashboard-dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ENGINE_HOST: ${{ secrets.ENGINE_HOST }}
+      ENGINE_SSH_KEY: ${{ secrets.ENGINE_SSH_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      ENGINE_PROJECT_REF: hovnqztlbsgsywrbidbh
+      ACTION: ${{ inputs.action }}
+      LEAGUE: ${{ inputs.league }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: SSH key
+        run: |
+          umask 077; mkdir -p ~/.ssh
+          printf '%s\n' "$ENGINE_SSH_KEY" > ~/.ssh/engine
+          printf 'Host engine\n  HostName %s\n  User ubuntu\n  IdentityFile ~/.ssh/engine\n  StrictHostKeyChecking accept-new\n  ConnectTimeout 20\n  BatchMode yes\n  ServerAliveInterval 30\n' "$ENGINE_HOST" > ~/.ssh/config
+
+      - name: Setup
+        if: inputs.action == 'setup'
+        run: |
+          ssh engine 'cat > /tmp/dhq-setup.sh' < server/engine/host/setup.sh
+          printf 'SUPABASE_ACCESS_TOKEN=%s\nENGINE_PROJECT_REF=%s\n' "$SUPABASE_ACCESS_TOKEN" "$ENGINE_PROJECT_REF" | ssh engine 'bash /tmp/dhq-setup.sh; rm -f /tmp/dhq-setup.sh'
+
+      - name: Compare (dry runs, nothing stored)
+        if: inputs.action == 'compare'
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 https://github.com/skjjcruz/DHQ-Shared.git "$RUNNER_TEMP/dhq-shared"
+          DHQ_SHARED_SOURCE="$RUNNER_TEMP/dhq-shared" node scripts/sync-reconai-shared.cjs
+          # Both start together so live Sleeper data is the same moment.
+          ssh engine "LEAGUES=$LEAGUE /opt/dhq/app/server/engine/host/build.sh --dry" > server-run.log 2>&1 &
+          SRV=$!
+          LEAGUES="$LEAGUE" node server/engine/run.js --dry > runner-run.log 2>&1
+          wait $SRV
+          echo "--- runner"; tail -n 5 runner-run.log
+          echo "--- server"; tail -n 8 server-run.log
+          ssh engine "cat /opt/dhq/app/server/engine/out/$LEAGUE.json" > server-out.json
+          node server/engine/host/compare.js "server/engine/out/$LEAGUE.json" server-out.json
+
+      - name: Enable hourly build
+        if: inputs.action == 'enable'
+        run: ssh engine 'sudo systemctl enable --now dhq-engine.timer && systemctl list-timers dhq-engine.timer --no-pager'
+
+      - name: Disable hourly build
+        if: inputs.action == 'disable'
+        run: ssh engine 'sudo systemctl disable --now dhq-engine.timer; systemctl is-enabled dhq-engine.timer || true'
+
+      - name: Run one build now
+        if: inputs.action == 'run'
+        run: |
+          ssh engine 'sudo systemctl start dhq-engine.service; systemctl show dhq-engine.service -p Result -p ExecMainStatus; journalctl -u dhq-engine.service -n 15 --no-pager -o cat'
+
+      - name: Status
+        if: always() && inputs.action != 'compare'
+        run: |
+          ssh engine 'echo "timer: $(systemctl is-enabled dhq-engine.timer 2>/dev/null || echo not-installed) / $(systemctl is-active dhq-engine.timer 2>/dev/null || true)"; systemctl list-timers dhq-engine.timer --no-pager 2>/dev/null | head -3; echo "--- last build"; journalctl -u dhq-engine.service -n 6 --no-pager -o cat 2>/dev/null || true; echo "--- memory"; free -m | head -2'
+          node -e "
+          fetch('https://api.supabase.com/v1/projects/'+process.env.ENGINE_PROJECT_REF+'/database/query',{method:'POST',headers:{Authorization:'Bearer '+process.env.SUPABASE_ACCESS_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({query:'select started_at, finished_at, leagues_ok, leagues_failed, notes as runner from public.engine_runs order by id desc limit 5'})}).then(r=>r.json()).then(j=>console.table(j)).catch(e=>console.log('runs:',e.message))"
+
+      - name: Clean up key
+        if: always()
+        run: rm -f ~/.ssh/engine
