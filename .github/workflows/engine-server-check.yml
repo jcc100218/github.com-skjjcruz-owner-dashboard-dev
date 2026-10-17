@@ -1,0 +1,28 @@
+name: Engine server check
+
+# Read-only reachability check for the engine server (Oracle Always Free,
+# owner setup 2026-10-17). Run by hand only; prints hardware facts, nothing
+# secret. Secrets: ENGINE_HOST, ENGINE_SSH_KEY.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Connect and report
+        env:
+          ENGINE_HOST: ${{ secrets.ENGINE_HOST }}
+          ENGINE_SSH_KEY: ${{ secrets.ENGINE_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$ENGINE_SSH_KEY" > ~/.ssh/engine
+          ssh -i ~/.ssh/engine -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o BatchMode=yes "ubuntu@$ENGINE_HOST" \
+            'echo "arch: $(uname -m)"; echo "cores: $(nproc)"; free -m | awk "/Mem:/{print \"memory MB: \"\$2}"; df -h / | awk "NR==2{print \"disk: \"\$2\" total, \"\$4\" free\"}"; . /etc/os-release; echo "os: $PRETTY_NAME"'
+          rm -f ~/.ssh/engine
