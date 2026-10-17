@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep the DHQ engine server from being counted idle (holds ~1.4 GB)
+
+[Service]
+User=ubuntu
+ExecStart=/usr/bin/node /opt/dhq/app/server/engine/host/keepwarm.js
+Restart=always
+RestartSec=60
+Nice=19
+MemoryMax=1700M
+
+[Install]
+WantedBy=multi-user.target
