@@ -127,7 +127,36 @@ async function snapshotCode(src) {
 }
 // One projection context per build run, shared across leagues (the week's
 // stats, schedule, depth charts and snapshots load once).
-async function createProjector(shared) {
+// Server-only speed-up (owner go-ahead 2026-10-18, transition step 2):
+// matchup-inputs.js works out the opponent's injuries (oppHealthFor) once
+// per PLAYER, so the same team's health is recounted for every player who
+// faces it: ~60% of projection time. Here it is worked out once per
+// (opponent, side of the ball) per league and reused. The function only
+// reads the shared player table, season stats and the league's prepared
+// context (the same inputs its own rankedMates cache already keys on), and
+// its result is only read (matchup-engine scoreOppHealth), so the numbers
+// are identical; host/memo-check.js proves it on live data. The app's copy
+// is untouched. If the source ever changes shape, the patch is skipped
+// (normal speed) rather than guessed.
+const MEMO_FROM = '    function oppHealthFor(opp, grp, opts, ctx) {\n';
+const MEMO_TO = '    function oppHealthFor(opp, grp, opts, ctx) {\n' +
+  '        if (!ctx || !opts || !opts.playersData) return oppHealthForOnce(opp, grp, opts, ctx);\n' +
+  "        const memo = ctx._oppHealthMemo || (ctx._oppHealthMemo = new Map());\n" +
+  "        const k = String(opp || '').toUpperCase() + '|' + (BALL_BASIS[grp] === 'tackles' ? 'offense' : 'defense');\n" +
+  '        if (!memo.has(k)) memo.set(k, oppHealthForOnce(opp, grp, opts, ctx));\n' +
+  '        return memo.get(k);\n' +
+  '    }\n' +
+  '    function oppHealthForOnce(opp, grp, opts, ctx) {\n';
+function engineSource(rel, memo) {
+  const code = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+  if (!memo || rel !== 'js/shared/matchup-inputs.js') return code;
+  if (code.split(MEMO_FROM).length !== 2 || !/\bBALL_BASIS\b/.test(code)) { console.warn('[dhq-proj] opponent-health speed-up skipped: matchup-inputs.js changed shape'); return code; }
+  return code.replace(MEMO_FROM, MEMO_TO);
+}
+
+// opts.memo: false turns the speed-up off (host/memo-check.js compares both).
+async function createProjector(shared, opts) {
+  const memo = !(opts && opts.memo === false) && process.env.DHQ_PROJ_MEMO !== '0';
   const ctx = {
     console: { log() {}, info() {}, debug() {}, warn() {}, error: (...a) => console.error('[dhq-proj]', ...a) },
     fetch: engineFetch, setTimeout, clearTimeout,
@@ -148,7 +177,7 @@ async function createProjector(shared) {
   // Sleeper's week lines come from the build's own fetch (headless.loadShared).
   ctx.Sleeper = { fetchWeekProjections: async () => shared.projWeek || {} };
   ctx.S = { platform: 'sleeper', players: shared.players, nflState: shared.nfl, season: String(shared.season), currentWeek: Number(shared.week), leagues: [], rosters: [], currentLeagueId: null };
-  for (const rel of FILES) vm.runInContext(fs.readFileSync(path.join(ROOT, rel), 'utf8'), ctx, { filename: rel });
+  for (const rel of FILES) vm.runInContext(engineSource(rel, memo), ctx, { filename: rel });
   // js/core.js's calcPPG (core.js is the app shell; only this helper is needed).
   ctx.App.calcPPG = ctx.App.calcPPG || function calcPPG(stats, scoring) { const raw = ctx.App.calcRawPts(stats, scoring); if (raw === null) return 0; const gp = (stats && stats.gp) || 0; return gp > 0 ? Math.max(0, raw / gp) : 0; };
   const data = {};
