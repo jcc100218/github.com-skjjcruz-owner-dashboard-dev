@@ -66,7 +66,7 @@ export const SKILLS: Skill[] = [
       'DHQ TRADE TARGETS METHOD (the Trade Center partner board).',
       '1. Call find_trade_targets. Partners are scored on roster fit (their surplus meets your needs and yours meets theirs), mutual need, their panic, their pick capital, how often they trade, their trade DNA, and whether your windows line up (contender with rebuilder is the best match). Locked elite rosters score low.',
       '2. Attack (85+) and Prime (68+) are worth an offer now. Possible (48+) needs the right package. Long shot: do not waste the message.',
-      '3. Build the offer from targets_for_you and my_chips or my_picks. Pay rebuilders in picks and young players; pay contenders in starters who score now.',
+      '3. Build the offer from targets_for_you and my_chips or my_picks. Pay rebuilders in picks and young players; pay contenders in starters who score now. With no needs (mode sell) the board lists the owners who need what you have extra of: shop you_could_offer to them for an upgrade or picks.',
       '4. Then call trade_plan with the target (and any package the member is considering): it builds offers only from what the member owns and prices them the way that partner sees them. A package to grade: evaluate_trade, and lead with its verdict.',
       ANSWER,
     ].join('\n'),

@@ -192,7 +192,8 @@ const BANK: Q[] = [
   { q: 'Who should I trade with?', tool: 'find_trade_targets', args: { league_id: lid }, must: r => [
     ...miss(Array.isArray(r.partners) && r.partners.length > 0, 'partners listed'),
     ...miss(r.partners.every((p: Any) => num(p.score) && p.tag && Array.isArray(p.reasons)), 'each partner has a score, tag and reasons'),
-    ...miss(r.partners.some((p: Any) => p.targets_for_you.length > 0), 'at least one partner has specific targets'),
+    // A team with no needs gets the sell board: specific players to offer instead.
+    ...miss(r.mode === 'sell' ? r.partners.some((p: Any) => p.you_could_offer.length > 0) : r.partners.some((p: Any) => p.targets_for_you.length > 0), 'at least one partner has specific targets (with no needs: specific players you could offer)'),
   ] },
   { q: 'What does the draft look like?', tool: 'get_draft_board', args: { league_id: lid }, must: r => [
     ...miss(num(r.draft_year), 'draft year'),

@@ -358,6 +358,11 @@ export function findTradeTargets(ctx: Ctx, L: LeagueRow, args: any) {
   if (!mine) throw new ToolError('No assessment for your team yet.');
   const te = ctx.te;
   const want: string[] = args.position ? [String(args.position).toUpperCase()] : (mine.needs || []).map((n: any) => n.pos);
+  // No needs and no position asked: nothing to shop for, so the board turns to
+  // who needs what you have extra of (the in-app AI's sell mode). A backup
+  // kicker is never offered: the member needs two to cover byes.
+  const sell = !want.length;
+  const extraAt = (a: any, pos: string) => { const x = (a.posAssessment || {})[pos] || {}; return (x.sortedIds || []).slice(Math.max(1, x.minQuality || 1)).slice(0, 2); };
   const DNA_SCORE: Record<string, number> = { FLEECER: -15, DOMINATOR: -18, STALWART: 4, ACCEPTOR: 8, DESPERATE: 10 };
   const partners = (L.snapshot.rosters || []).filter(r => r.roster_id !== me.roster_id).map(r => {
     const them = assessOf(L, r.roster_id); if (!them) return null;
@@ -385,13 +390,20 @@ export function findTradeTargets(ctx: Ctx, L: LeagueRow, args: any) {
     if (Number(them.panic || 0) >= 3) reasons.push('panic ' + them.panic + ' of 5: a hurting team deals');
     if (posture.key === 'LOCKED') reasons.push('locked roster: elite and calm, hard to move');
     if (fit === 14) reasons.push('your windows line up (' + mine.window.toLowerCase() + ' vs ' + them.window.toLowerCase() + ')');
-    return { roster_id: r.roster_id, team: teamName(L, r.roster_id), owner: ownerName(L, r.roster_id), score, tag, tier: them.tier, window: them.window, posture: posture.label, their_needs: (them.needs || []).map((n: any) => n.pos + ' (' + n.urgency + ')'), their_strengths: them.strengths || [], pick_capital_dhq: Math.round(pickCapital), trades_made: trades, targets_for_you: targets, reasons };
+    const offer = (them.needs || []).map((n: any) => n.pos).filter((pos: string) => pos !== 'K' && (mine.strengths || []).includes(pos)).flatMap((pos: string) => extraAt(mine, pos).map((pid: string) => ({ player: name(ctx, pid), pos, dhq_value: dhq(L, pid) })));
+    return { roster_id: r.roster_id, team: teamName(L, r.roster_id), owner: ownerName(L, r.roster_id), score, tag, tier: them.tier, window: them.window, posture: posture.label, their_needs: (them.needs || []).map((n: any) => n.pos + ' (' + n.urgency + ')'), their_strengths: them.strengths || [], pick_capital_dhq: Math.round(pickCapital), trades_made: trades, targets_for_you: targets, you_could_offer: offer, reasons };
   }).filter(Boolean).sort((a: any, b: any) => b.score - a.score) as any[];
-  const chips = (mine.strengths || []).flatMap((pos: string) => { const x = (mine.posAssessment || {})[pos] || {}; return (x.sortedIds || []).slice(Math.max(1, x.minQuality || 1)).slice(0, 2).map((pid: string) => ({ player: name(ctx, pid), pos, dhq_value: dhq(L, pid), why: 'beyond the ' + x.minQuality + ' quality ' + pos + ' your lineup needs' })); });
+  // Sell mode lists only the owners who need something you have extra of
+  // (or the whole board, scored as usual, when nobody does).
+  const buyers = partners.filter((p: any) => p.you_could_offer.length);
+  const board = sell && buyers.length ? buyers : partners;
+  const chips = (mine.strengths || []).flatMap((pos: string) => { const x = (mine.posAssessment || {})[pos] || {}; return extraAt(mine, pos).map((pid: string) => ({ player: name(ctx, pid), pos, dhq_value: dhq(L, pid), why: 'beyond the ' + x.minQuality + ' quality ' + pos + ' your lineup needs' })); });
   const myPicks = ((L.snapshot.picks || {})[String(me.roster_id)] || []).map(pk => pickLabel(pk, me.roster_id, L) + ' · DHQ ' + pk.value);
   return {
     league_id: L.league_id, my_team: teamName(L, me.roster_id), my_window: mine.window, my_needs: (mine.needs || []).map((n: any) => n.pos + ' (' + n.urgency + ')'), looking_for: want,
-    partners: partners.slice(0, Number(args.limit) || 6),
+    mode: sell ? 'sell' : 'buy',
+    ...(sell ? { note: 'You have no position needs right now, so these are the owners who need what you have extra of (you_could_offer). ' + (buyers.length ? 'Shop that surplus to them and ask for ' + (mine.window === 'CONTENDING' ? 'a starter-level upgrade or future picks.' : mine.window === 'REBUILDING' ? 'picks and young players.' : 'an upgrade where your lineup is weakest, or picks.') : 'Nobody in the league needs your extra players right now, so this is the usual partner board; name a position to shop for one.') } : {}),
+    partners: board.slice(0, Number(args.limit) || 6),
     my_chips: chips, my_picks: myPicks,
     how_to_use: 'Pick a partner and a target, then call trade_plan (target, partner): it reads the partner\'s real mode, sets the going rate and builds offers only from what you own, each with its acceptance chance. To grade a package you already have, call evaluate_trade and lead with its verdict.',
     method: skillText('trade_targets'), numbers_as_of: L.built_at,
