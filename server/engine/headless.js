@@ -16,14 +16,14 @@ const vm = require('vm');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const API = 'https://api.sleeper.app/v1';
-const ENGINE_VERSION = 'headless-4';
+const ENGINE_VERSION = 'headless-5';
 
 // The shared engine files, in the order index.html loads them (only the
 // ones the valuation path needs — no auth, UI or AI modules).
 const ENGINE_FILES = [
   'constants.js', 'utils.js', 'storage.js', 'event-bus.js', 'platform-provider.js', 'sleeper-api.js',
   'pick-value-model.js', 'dhq-providers.js', 'dhq-core.js', 'intelligence-context.js', 'values-v2.js', 'pff-snapshot.js',
-  'dhq-engine.js', 'nfl-roles.js', 'team-assess.js', 'analytics-engine.js', 'trade-engine.js',
+  'dhq-engine.js', 'nfl-roles.js', 'team-assess.js', 'analytics-engine.js', 'trade-engine.js', 'rookie-data.js',
 ].map(f => 'reconai-shared/' + f).concat(['js/utils/player-value.js']);
 
 function storage() {
@@ -53,6 +53,16 @@ function buildContext() {
     requestAnimationFrame: fn => setTimeout(fn, 0), cancelAnimationFrame: () => {},
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
     React: { createContext: () => ({}), useState: () => [null, () => {}], useEffect() {}, useMemo: () => null, useRef: () => ({ current: null }), useCallback: f => f, createElement: () => null, Fragment: 'f' },
+  };
+  // The rookie prospect CSVs (rookie-data.js) are read from this checkout's
+  // draft-war-room/, the same files the app serves (sync-reconai-shared
+  // refreshes them from DHQ-Shared before every build).
+  ctx.ROOKIE_DATA_BASE = 'dhq-local/draft-war-room';
+  ctx.fetch = (url, opts) => {
+    const m = /^dhq-local\/(draft-war-room\/[\w./-]+\.csv)$/.exec(String(url));
+    if (!m) return fetch(url, opts);
+    const file = path.join(ROOT, m[1]);
+    return Promise.resolve(fs.existsSync(file) ? new Response(fs.readFileSync(file, 'utf8'), { status: 200 }) : new Response('', { status: 404 }));
   };
   ctx.window = ctx; ctx.self = ctx; ctx.globalThis = ctx;
   return vm.createContext(ctx);
@@ -302,6 +312,18 @@ async function buildLeague(leagueId, shared, histCache) {
   const DhqStorage = vm.runInContext('DhqStorage', ctx);
   DhqStorage.idbGet = async key => (histCache && /^dhq_hist_/.test(key)) ? await histCache.get(key) : null;
   DhqStorage.idbSet = async (key, value) => { if (histCache && /^dhq_hist_/.test(key)) await histCache.set(key, value); return true; };
+  // The incoming rookie class (prospect values and draft capital for the
+  // early-career floor). A device loads it in the background, so a fresh
+  // device build may or may not have it; the server always waits for it
+  // (owner check 2026-10-19: 97 young players differed without it).
+  // The count rides along in the stored intel; the Lab uses a server build
+  // only when it is there.
+  let rookieProspects = 0;
+  if (typeof W.loadRookieProspects === 'function') {
+    const rk = await W.loadRookieProspects().catch(e => { console.error('rookie prospects:', e.message || e); return null; });
+    rookieProspects = (rk && rk.count) || 0;
+    if (!rookieProspects) console.error('rookie prospects did not load for ' + leagueId + ': young-player values will differ from a device that has them');
+  }
 
   const { nfl, season, players } = shared;
   const week = Number(nfl.display_week || nfl.week || 1);
@@ -359,7 +381,7 @@ async function buildLeague(leagueId, shared, histCache) {
   return {
     league_id: league.league_id, season: leagueSeason, name: league.name, platform: 'sleeper',
     built_at: new Date().toISOString(), engine_version: ENGINE_VERSION, build_ms: Date.now() - t0,
-    intel: slimIntel(LI), assessments, dna, snapshot,
+    intel: Object.assign(slimIntel(LI), { rookieProspects }), assessments, dna, snapshot,
   };
 }
 
