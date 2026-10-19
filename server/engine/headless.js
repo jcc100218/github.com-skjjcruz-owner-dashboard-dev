@@ -23,7 +23,7 @@ const ENGINE_VERSION = 'headless-4';
 const ENGINE_FILES = [
   'constants.js', 'utils.js', 'storage.js', 'event-bus.js', 'platform-provider.js', 'sleeper-api.js',
   'pick-value-model.js', 'dhq-providers.js', 'dhq-core.js', 'intelligence-context.js', 'values-v2.js', 'pff-snapshot.js',
-  'dhq-engine.js', 'team-assess.js', 'analytics-engine.js', 'trade-engine.js',
+  'dhq-engine.js', 'nfl-roles.js', 'team-assess.js', 'analytics-engine.js', 'trade-engine.js',
 ].map(f => 'reconai-shared/' + f).concat(['js/utils/player-value.js']);
 
 function storage() {
@@ -96,7 +96,18 @@ async function loadShared() {
   // (or is on the field right now): its players are locked in Sleeper.
   const thisWeek = weeklyStats[week] || {};
   Object.keys(thisWeek).forEach(pid => { const t = players[pid] && players[pid].team; if (t && Number(thisWeek[pid].gp) > 0 && weekGames[t]) weekGames[t].played = true; });
-  return { nfl, season, week, players, statsByYear, weeklyStats, projWeek: projWeek || {}, weekGames };
+  const roles = await nflRoles().catch(() => null);
+  return { nfl, season, week, players, statsByYear, weeklyStats, projWeek: projWeek || {}, weekGames, roles };
+}
+
+// The NFL depth charts the app's NflRoles module reads (the app's public
+// nfl-depth-charts function, the same endpoint a device calls). Null when it
+// can't be reached; the engine then runs without them, as a device would.
+async function nflRoles() {
+  const r = await fetch('https://sxshiqyxhhifvtfqawbq.supabase.co/functions/v1/nfl-depth-charts', { signal: AbortSignal.timeout(20000) });
+  if (!r.ok) return null;
+  const doc = await r.json();
+  return doc && doc.roles && typeof doc.roles === 'object' && Object.keys(doc.roles).length > 50 ? doc.roles : null;
 }
 
 // Who each NFL team plays this week (and when), from Sleeper's projection
@@ -184,7 +195,8 @@ function slimIntel(LI) {
     const pm = {};
     for (const pid in out.playerMeta) {
       const m = Object.assign({}, out.playerMeta[pid]);
-      delete m.sitMultFactors; delete m.fcCompatibilityReasons; delete m.opportunityBlockers;
+      // opportunityBlockers stays: the app's player brief and nfl-fit read it.
+      delete m.sitMultFactors; delete m.fcCompatibilityReasons;
       pm[pid] = m;
     }
     out.playerMeta = pm;
@@ -273,6 +285,12 @@ async function pastSeasons(league, histCache) {
 async function buildLeague(leagueId, shared, histCache) {
   const t0 = Date.now();
   const ctx = buildContext();
+  // The depth charts the app's NflRoles loads (the superflex QB floor and
+  // starter roles read them): fetched once per run in loadShared and served
+  // through the module's own cache key, so it is settled before the engine
+  // runs, as it is on a device (owner check 2026-10-19: without it three
+  // backup QBs valued under the app's floor).
+  if (shared.roles) ctx.localStorage.setItem('dhq_nfl_roles_v1', JSON.stringify({ ts: Date.now(), roles: shared.roles }));
   loadEngine(ctx);
   const W = ctx.window;
   // Season stats come from this run's shared download, not a per-league fetch.
