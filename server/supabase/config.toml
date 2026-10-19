@@ -12,3 +12,7 @@ verify_jwt = false
 # Queues Sleeper league ids for the engine server; grants nothing.
 [functions.dhq-request]
 verify_jwt = false
+
+# One league's built numbers (public Sleeper-league data); grants nothing.
+[functions.dhq-league]
+verify_jwt = false

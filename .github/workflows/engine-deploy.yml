@@ -61,6 +61,7 @@ jobs:
           deno check server/supabase/functions/dhq-auth/index.ts
           deno check server/supabase/functions/dhq-news/index.ts
           deno check server/supabase/functions/dhq-request/index.ts
+          deno check server/supabase/functions/dhq-league/index.ts
 
       # The question bank: build one league for real (dry run, nothing
       # stored) and make sure every question still comes back with the facts
@@ -100,6 +101,8 @@ jobs:
           supabase functions deploy dhq-news --project-ref "$ENGINE_PROJECT_REF" --workdir server --use-api --no-verify-jwt
           # Queues league ids for the engine server; grants nothing: no sign-in.
           supabase functions deploy dhq-request --project-ref "$ENGINE_PROJECT_REF" --workdir server --use-api --no-verify-jwt
+          # One league's built numbers (public Sleeper-league data): no sign-in.
+          supabase functions deploy dhq-league --project-ref "$ENGINE_PROJECT_REF" --workdir server --use-api --no-verify-jwt
 
       - name: Smoke test
         run: |
@@ -114,3 +117,7 @@ jobs:
           code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "https://$ENGINE_PROJECT_REF.supabase.co/functions/v1/dhq-request" -H 'Content-Type: application/json' -d '{"leagues":["abc"]}')
           echo "dhq-request with a bad id → HTTP $code (expect 400)"
           [ "$code" = "400" ]
+          # dhq-league serves a built league (the test league is always built).
+          code=$(curl -sS -o /dev/null -w '%{http_code}' "https://$ENGINE_PROJECT_REF.supabase.co/functions/v1/dhq-league?league=1312100327931019264")
+          echo "dhq-league test league → HTTP $code (expect 200)"
+          [ "$code" = "200" ]

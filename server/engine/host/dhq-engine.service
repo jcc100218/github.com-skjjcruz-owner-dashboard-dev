@@ -7,6 +7,8 @@ After=network-online.target
 Type=oneshot
 User=ubuntu
 EnvironmentFile=/etc/dhq-engine.env
+# Room for 15-minute game-day runs: stop starting leagues after 11 minutes.
+Environment=ENGINE_BUDGET_MIN=11
 ExecStart=/opt/dhq/app/server/engine/host/build.sh
-TimeoutStartSec=50min
+TimeoutStartSec=15min
 Nice=5

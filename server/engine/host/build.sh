@@ -10,9 +10,9 @@ set -euo pipefail
 main() {
   local BASE=/opt/dhq
   exec 9>"$BASE/build.lock"
-  # Wait for a build already going (a request build or the hourly one) rather
-  # than skipping a turn; give up after 20 minutes.
-  flock -w 1200 9 || { echo "another build ran over 20 minutes; skipping"; exit 0; }
+  # Wait for a build already going (a request build or a scheduled one) rather
+  # than skipping a turn; give up after 5 minutes (the next slot is 15 away).
+  flock -w 300 9 || { echo "another build is still running; skipping"; exit 0; }
 
   git -C "$BASE/app" fetch -q origin main && git -C "$BASE/app" reset -q --hard origin/main
   git -C "$BASE/DHQ-Shared" fetch -q origin && git -C "$BASE/DHQ-Shared" reset -q --hard origin/HEAD
@@ -25,6 +25,6 @@ main() {
     trap 'node /opt/dhq/app/server/engine/host/lease.js clear || true' EXIT
   fi
   echo "building at $(git rev-parse --short HEAD)"
-  ENGINE_RUNNER="${ENGINE_RUNNER:-server}" timeout 25m node --max-old-space-size=3072 server/engine/run.js "$@"
+  ENGINE_RUNNER="${ENGINE_RUNNER:-server}" timeout 14m node --max-old-space-size=3072 server/engine/run.js "$@"
 }
 main "$@"; exit

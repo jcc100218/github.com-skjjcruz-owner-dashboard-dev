@@ -1,8 +1,16 @@
 [Unit]
-Description=DHQ engine build, hourly at :17 (UTC)
+Description=DHQ engine build: hourly, every 15 minutes in NFL game windows
 
 [Timer]
-OnCalendar=*-*-* *:17:00
+# Hourly baseline (UTC).
+OnCalendar=*-*-* *:17:00 UTC
+# Game windows, every 15 minutes (owner ask 2026-10-18), on Eastern time so
+# daylight saving is handled: Sunday 9am (London games) to 1am, Thursday and
+# Monday nights 7pm to 1am. Builds take ~2 minutes; a slot that fires while
+# one is still running is skipped.
+OnCalendar=Sun *-*-* 09..23:02,17,32,47:00 America/New_York
+OnCalendar=Thu,Mon *-*-* 19..23:02,17,32,47:00 America/New_York
+OnCalendar=Fri,Mon,Tue *-*-* 00:02,17,32,47:00 America/New_York
 Persistent=true
 
 [Install]
