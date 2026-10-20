@@ -176,6 +176,9 @@ if (_isLocalDev) {
 // Owner ruling 2026-09-20: the original engine returns, mirroring website
 // b132. The one-brain assessments (health, tiers, record-first power
 // rank) run either way.
+// values-v2.js and pff-snapshot.js are no longer loaded or published
+// (cleanup, 2026-10-20): turning v2 back on means adding them back here and
+// to scripts/sync-reconai-shared.cjs.
 window.__DHQ_ENGINE_V2 = false;
 const WR_SHARED_FILES = [
   'app-config.js',
@@ -195,8 +198,6 @@ const WR_SHARED_FILES = [
   'intelligence-context.js',
   'points-ledger.js',
   'one-brain.js',
-  'values-v2.js',
-  'pff-snapshot.js',
   'intent-reads.js',
   'dhq-engine.js',
   'nfl-fit.js',
@@ -3491,7 +3492,7 @@ window.addEventListener('appinstalled', () => {
 <!-- Deploy tag (owner ask 2026-08-19): a tiny always-visible build code so the
      owner can read back exactly which version his device is running before
      testing — kills the stale-cache guessing game. Bump the code every deploy. -->
-<div id="dhq-build-tag" style="position:fixed;bottom:2px;right:6px;z-index:2147483647;font:700 9px/1.4 monospace;color:rgba(255,255,255,0.30);pointer-events:none;user-select:none;">b181a</div>
+<div id="dhq-build-tag" style="position:fixed;bottom:2px;right:6px;z-index:2147483647;font:700 9px/1.4 monospace;color:rgba(255,255,255,0.30);pointer-events:none;user-select:none;">b182a</div>
 </body>
 </html>
 <!-- build 1774212614 -->

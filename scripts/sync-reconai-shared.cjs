@@ -100,7 +100,23 @@ if (missing.length) {
 fs.rmSync(TARGET, { recursive: true, force: true });
 fs.mkdirSync(TARGET, { recursive: true });
 
-for (const file of modules) {
+// Shared modules no page here loads, so the Pages build does not publish
+// them (cleanup, 2026-10-20): the retired v2 value formula and its PFF grade
+// snapshot, read only when window.__DHQ_ENGINE_V2 is true (off since
+// 2026-09-20). Only when DHQ_SHARED_FOR_PAGES=1 (deploy.yml, build:deploy,
+// publish-lab): the engine server runs this script too and its headless
+// build still loads both. To turn v2 back on, drop them from this list and
+// put them back in index.html's WR_SHARED_FILES.
+const FOR_PAGES = /^(1|true|yes)$/i.test(String(process.env.DHQ_SHARED_FOR_PAGES || '').trim());
+const NOT_VENDORED = new Set(FOR_PAGES ? ['values-v2.js', 'pff-snapshot.js'] : []);
+const vendored = modules.filter(f => !NOT_VENDORED.has(f));
+const loadedButDropped = requiredModules().filter(f => NOT_VENDORED.has(f));
+if (loadedButDropped.length) {
+  console.error(`[sync-reconai-shared] pages load ${loadedButDropped.join(', ')}, which this script does not vendor (NOT_VENDORED)`);
+  process.exit(1);
+}
+
+for (const file of vendored) {
   const src = path.join(SOURCE, file);
   if (!fs.existsSync(src)) {
     console.error(`[sync-reconai-shared] Missing module in source: ${src}`);
@@ -121,4 +137,4 @@ for (const rel of data) {
   fs.copyFileSync(src, dest);
 }
 
-console.log(`[sync-reconai-shared] Vendored ${modules.length} modules into ${path.relative(ROOT, TARGET)}/ and refreshed ${data.length} data files from ${SOURCE}`);
+console.log(`[sync-reconai-shared] Vendored ${vendored.length} modules${NOT_VENDORED.size ? ' (for Pages: not ' + [...NOT_VENDORED].join(', ') + ')' : ''} into ${path.relative(ROOT, TARGET)}/ and refreshed ${data.length} data files from ${SOURCE}`);

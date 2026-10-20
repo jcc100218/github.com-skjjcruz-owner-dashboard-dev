@@ -62,7 +62,7 @@ jobs:
         run: npm ci --omit=dev
 
       - name: Sync shared modules from DHQ-Shared
-        run: DHQ_SHARED_SOURCE="$GITHUB_WORKSPACE/dhq-shared-src" npm run sync:shared
+        run: DHQ_SHARED_SOURCE="$GITHUB_WORKSPACE/dhq-shared-src" DHQ_SHARED_FOR_PAGES=1 npm run sync:shared
 
       # Precompile every type="text/babel" entry (index.html) to plain JS
       # so production never
@@ -89,6 +89,10 @@ jobs:
           # Overlay the precompiled entries + plain-JS modules on top of the raw
           # sources, replacing the JSX files and the index.html that loaded Babel.
           cp -R dist-deploy/. pages-artifact/
+          # Not published: tests and notes under js/, and modules no page
+          # loads (cleanup, 2026-10-20).
+          find pages-artifact/js -type f \( -name '*.test.js' -o -name '*.md' \) -delete
+          rm -f pages-artifact/vendor/README.md pages-artifact/js/shared/gm-trade-engine.js pages-artifact/js/shared/qb-trade-rules-v2.js
           rm -rf pages-artifact/**/.git pages-artifact/**/node_modules pages-artifact/**/supabase pages-artifact/**/tests
           # Live update: without version.json running pages never see this deploy.
           [ -f pages-artifact/version.json ] || { echo "Missing pages-artifact/version.json" >&2; exit 1; }
