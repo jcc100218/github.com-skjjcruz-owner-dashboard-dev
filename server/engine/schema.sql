@@ -193,3 +193,27 @@ create index if not exists build_requests_ip on public.build_requests (ip_hash, 
 -- Full hourly builds vs. one-league request builds: GitHub's fallback check
 -- (server/engine/host/lease.js gate) looks at full builds only.
 alter table public.engine_runs add column if not exists kind text not null default 'full';
+
+-- Data API grants (Supabase, from 2026-10-30: a table created in "public" is
+-- no longer granted to the API roles automatically). Every engine table is
+-- read and written by the service role only (the builder, dhq-tools,
+-- dhq-league, dhq-request); RLS above keeps the public key out. Existing
+-- tables already hold these; this only fills a gap, so a fresh project (or a
+-- table added here) works the same. A new table goes in this list too
+-- (tests/table-grants-contract.js checks).
+do $$
+declare t text;
+begin
+  foreach t in array array['connect_leagues', 'league_intel', 'engine_cache', 'engine_runs', 'connect_keys',
+    'oauth_clients', 'oauth_pending', 'oauth_codes', 'connect_usage', 'player_news', 'connect_trace', 'build_requests'] loop
+    if to_regclass('public.' || t) is not null and not (
+      has_table_privilege('service_role', 'public.' || t, 'SELECT') and has_table_privilege('service_role', 'public.' || t, 'INSERT')
+      and has_table_privilege('service_role', 'public.' || t, 'UPDATE') and has_table_privilege('service_role', 'public.' || t, 'DELETE')) then
+      execute format('grant select, insert, update, delete on public.%I to service_role', t);
+    end if;
+  end loop;
+  -- connect_trace's id counter (bigserial) needs its own grant for inserts.
+  if to_regclass('public.connect_trace_id_seq') is not null and not has_sequence_privilege('service_role', 'public.connect_trace_id_seq', 'USAGE') then
+    grant usage, select on sequence public.connect_trace_id_seq to service_role;
+  end if;
+end $$;
