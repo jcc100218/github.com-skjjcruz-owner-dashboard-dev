@@ -32,7 +32,9 @@
                       .catch((e) => { if (window.wrLog) window.wrLog(group + '.lazyLoad', e); if (alive) setPhase('error'); });
                 // A stalled group can still land after the loader gave up; the
                 // loader announces it, and the tab recovers without a tap.
-                const onGroupLoaded = (e) => { if (e && e.detail && e.detail.group === group) settle(); };
+                // '*': a boot script the boot guard fetched again just arrived
+                // (it may be what this tab was missing).
+                const onGroupLoaded = (e) => { if (e && e.detail && (e.detail.group === group || e.detail.group === '*')) settle(); };
                 window.addEventListener('wr:module-group-loaded', onGroupLoaded);
                 return () => { alive = false; window.removeEventListener('wr:module-group-loaded', onGroupLoaded); };
             }, [attempt, phase === 'ready']);
@@ -70,7 +72,10 @@
     const LineupTabLazy = wrLazyTab('lineup', 'Lineup', () => (typeof window.LineupTab === 'function' ? window.LineupTab : null));
     // The Wire (league newspaper): engines + JSX + styles live in the deferred
     // 'wire' group, injected on first open of the tab.
-    const LeagueWireTabLazy = wrLazyTab('wire', 'The Wire', () => (typeof window.WrLeagueWire === 'function' ? window.WrLeagueWire : null));
+    // The Wire also needs the boot-loaded live scores module: when that file
+    // failed to download, show the tab's "didn't load / Try again" instead of a
+    // crash (2026-10-20: L.useScores TypeError on a phone that missed it).
+    const LeagueWireTabLazy = wrLazyTab('wire', 'The Wire', () => (typeof window.WrLeagueWire === 'function' && window.App?.LeagueLiveScores ? window.WrLeagueWire : null));
 
     function escapeHtml(str) {
         return String(str)
