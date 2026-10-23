@@ -69,3 +69,9 @@ verify_jwt = false
 
 [functions.feature-requests]
 verify_jwt = false
+
+[functions.fw-dashboard-reminders]
+verify_jwt = false
+
+[functions.fw-dashboard-reminder-worker]
+verify_jwt = false
